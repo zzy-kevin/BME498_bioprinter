@@ -112,30 +112,50 @@ void comb_rot(bool clockwise_a, int steps_a, bool clockwise_b, int steps_b, int 
     digitalWrite(dirPin2, LOW);
   }
 
-  int comb_step;
-  comb_step = min(steps_a, steps_b);
-  Serial.println(comb_step);
-  for (int x = 0; x < comb_step; x++){
-    digitalWrite(stepPin, HIGH);
-    digitalWrite(stepPin2, HIGH);
-    delayMicroseconds(wait);
-    digitalWrite(stepPin, LOW);
-    digitalWrite(stepPin2, LOW);
-    delayMicroseconds(wait);
-  }
-  for (int x = 0; x < steps_a - comb_step; x++){
-    digitalWrite(stepPin, HIGH);
-    delayMicroseconds(wait);
-    digitalWrite(stepPin, LOW);
-    delayMicroseconds(wait);
-  }
+  int comb_step = min(steps_a, steps_b);
   
-  for (int x = 0; x < steps_b - comb_step; x++){
-    digitalWrite(stepPin2, HIGH);
-    delayMicroseconds(wait);
-    digitalWrite(stepPin2, LOW);
-    delayMicroseconds(wait);
+  Serial.println(String(comb_step) + String(steps_a) + String(steps_b));
+//  for (int x = 0; x < comb_step; x++){
+//    digitalWrite(stepPin, HIGH);
+//    digitalWrite(stepPin2, HIGH);
+//    delayMicroseconds(wait);
+//    digitalWrite(stepPin, LOW);
+//    digitalWrite(stepPin2, LOW);
+//    delayMicroseconds(wait);
+//  }
+//  for (int x = 0; x < steps_a - comb_step; x++){
+//    digitalWrite(stepPin, HIGH);
+//    delayMicroseconds(wait);
+//    digitalWrite(stepPin, LOW);
+//    delayMicroseconds(wait);
+//  }
+//  
+//  for (int x = 0; x < steps_b - comb_step; x++){
+//    digitalWrite(stepPin2, HIGH);
+//    delayMicroseconds(wait);
+//    digitalWrite(stepPin2, LOW);
+//    delayMicroseconds(wait);
+//  }
+  int max_steps = max(steps_a, steps_b);
+  if (steps_a < max_steps) {
+    int steps_done = 0;
+    for (int x = 0; x < max_steps; x++){
+      digitalWrite(stepPin2, HIGH);
+      if ((steps_done * (float(steps_b)/float(steps_a))) < x) {
+        digitalWrite(stepPin, HIGH);
+      }
+      delayMicroseconds(wait);
+      digitalWrite(stepPin2, LOW);
+      if ((steps_done * (float(steps_b)/float(steps_a))) < x) {
+        digitalWrite(stepPin, LOW);
+        steps_done ++;
+      }
+      delayMicroseconds(wait);
+      Serial.println(steps_done);
+      Serial.println(x);
+    }
   }
+
   
 }
 
@@ -196,13 +216,13 @@ void loop() {
     } else if (message.startsWith("get_dist")) {
       get_dist();
     } else if (message.startsWith("comb_rot")) {
-      bool clockwise_a, clockwise_b;
+      int clockwise_a, clockwise_b;
       int steps_a, steps_b, wait;
       int numArgs = sscanf(message.c_str(), "comb_rot %d %d %d %d %d", &clockwise_a, &steps_a, &clockwise_b, &steps_b, &wait);
 
       if (numArgs == 5) {
-        // Call the rot_z function with the extracted values
-        comb_rot(clockwise_a, steps_a, clockwise_b, steps_b, wait);
+        // Call the comb_rot function with the extracted values
+        comb_rot(static_cast<bool>(clockwise_a), steps_a, static_cast<bool>(clockwise_b), steps_b, wait);
         
         // Send a confirmation message back to the PC
         Serial.println("Motor control executed.");
