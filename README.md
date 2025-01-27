@@ -4,13 +4,12 @@ Automatic scanner cylindrical coordinate robotic arm bioprinter for burn wound t
 
 ## TODO: 
 ### Arduino side
-* Finish comb_rot
 * Generalize code to receive serial command from pc.
 * Add comments and doc string
 * VL53L1X integration including: reduce FOV, increased timing budget, take avg, curve smoothing, offset calibration, individual SPAD calibration, and more...
+* Maybe make a different version of comb_rot with linear travel
 
 ### PC side
-* Integrate comb_rot in IK
 * Add comments, especially for IK
 * Scanning system
 * Feedback system
