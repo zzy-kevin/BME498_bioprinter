@@ -5,7 +5,7 @@ import serial.tools.list_ports
 
 import math
 
-arm_a_deg = 0
+arm_a_deg = 0.0
 arm_b_deg = 0.0
 
 
@@ -14,6 +14,7 @@ class RoboticArmController:
         self.serial_connection = serial_connection
         self.steps_per_revolution = 200  # Example: 200 steps per motor revolution (1.8° per step)
         self.gear_ratio = 4  # Reduction ratio (motor:arm = 1:4)
+        self.steps_per_deg = self.steps_per_revolution * self.gear_ratio /  360
 
     def rotate_arm_a(self, degrees, wait):
         """
@@ -38,8 +39,6 @@ class RoboticArmController:
         steps = abs(degrees) * self.steps_per_revolution * self.gear_ratio / 360
         message = f"rot_b {direction} {int(steps)} {wait}"
         self.serial_connection.write((message + '\n').encode())
-
-    import math
 
     def move_arm(self, start_angle_a, start_angle_b, target_x, target_y, l_a, l_b):
         """
@@ -81,9 +80,12 @@ class RoboticArmController:
         #return new_angle_a, new_angle_b
 
         # Send commands to the arms to rotate
-        self.rotate_arm_a(-delta_a, 5000)  # Adjust wait as needed
-        self.rotate_arm_b(-delta_b, 5000)
+        #self.rotate_arm_a(-delta_a, 5000)  # Adjust wait as needed
+        #self.rotate_arm_b(-delta_b, 5000)
 
+        message = f"comb_rot {int(bool(delta_a>0))} {abs(int(delta_a * self.steps_per_deg))} {int(bool(delta_b>0))} {abs(int(delta_b * self.steps_per_deg))} {4000} "
+        self.serial_connection.write((message + '\n').encode())
+        print(message)
         print(
             f"Moved arm to target ({target_x}, {target_y}) with new angles: A={angle_a_new:.2f}, B={angle_b_new:.2f},\
                 angle rotated is A={delta_a:.2f} and B={delta_b:.2f}")
@@ -167,7 +169,6 @@ class SerialCommApp:
             message = self.message_entry.get()
             if message:
                 if message.startswith("rotate_arm") or message.startswith("move_arm"):
-                    print("aa")
                     parse_and_execute_command(message, arm)
                 else:
                     try:
@@ -243,7 +244,7 @@ def parse_and_execute_command(command, arm_controller, wait=5000):
             # Split the command into parts
             parts = command.split()
             if len(parts) != 5:
-                print("Invalid command format. Expected: rotate_arm_a <degrees> <wait>")
+                print("Invalid command format. Expected: move_arm <target_x> <target_y> <length_a> <length_b>")
                 return
 
             # Extract arguments

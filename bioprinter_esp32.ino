@@ -154,6 +154,23 @@ void comb_rot(bool clockwise_a, int steps_a, bool clockwise_b, int steps_b, int 
       Serial.println(steps_done);
       Serial.println(x);
     }
+  } else if (steps_a <= max_steps) {
+    int steps_done = 0;
+    for (int x = 0; x < max_steps; x++){
+      digitalWrite(stepPin, HIGH);
+      if ((steps_done * (float(steps_a)/float(steps_b))) < x) {
+        digitalWrite(stepPin2, HIGH);
+      }
+      delayMicroseconds(wait);
+      digitalWrite(stepPin, LOW);
+      if ((steps_done * (float(steps_a)/float(steps_b))) < x) {
+        digitalWrite(stepPin2, LOW);
+        steps_done ++;
+      }
+      delayMicroseconds(wait);
+      Serial.println(steps_done);
+      Serial.println(x);
+    }
   }
 
   
