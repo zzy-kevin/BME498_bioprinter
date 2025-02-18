@@ -1,20 +1,30 @@
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial
 import serial.tools.list_ports
-
+import numpy as np
 import math
 
+"""
+We have a global arm_a and arm_b deg so we can store the current position of the robotic arm.
+Note that this is always round to deg per step
+We have a global arm_a and arm_b err so we can compensate for movement smaller than our step
+This error is considered and updated everytime the arm is moved.
+"""
 arm_a_deg = 0.0
 arm_b_deg = 0.0
-
+dist_per_pix = 8
+arm_a_err = 0.0
+arm_b_err = 0.0
 
 class RoboticArmController:
     def __init__(self, serial_connection):
         self.serial_connection = serial_connection
         self.steps_per_revolution = 200  # Example: 200 steps per motor revolution (1.8° per step)
         self.gear_ratio = 4  # Reduction ratio (motor:arm = 1:4)
-        self.steps_per_deg = self.steps_per_revolution * self.gear_ratio /  360
+        self.steps_per_deg = self.steps_per_revolution * self.gear_ratio / 360
+        self.deg_per_step = 1/ self.steps_per_deg
 
     def rotate_arm_a(self, degrees, wait):
         """
@@ -23,10 +33,16 @@ class RoboticArmController:
             degrees (float): The angle to rotate in degrees (positive for CW, negative for CCW).
             wait (int): The delay between PWM signals in microseconds.
         """
+        global arm_a_err
         direction = 0 if degrees > 0 else 1  # CW = 0, CCW = 1, REMEMBER THAT motor is upside down so this is inverted
-        steps = abs(degrees) * self.steps_per_revolution * self.gear_ratio / 360
+        compensated_degree = np.fix((degrees + arm_a_err) / self.deg_per_step) * self.deg_per_step
+        arm_a_err = compensated_degree - (degrees + arm_a_err)
+
+        steps = abs(compensated_degree) * self.steps_per_revolution * self.gear_ratio / 360
         message = f"rot_a {direction} {int(steps)} {wait}"
         self.serial_connection.write((message + '\n').encode())
+
+        return np.sign(degrees) * compensated_degree
 
     def rotate_arm_b(self, degrees, wait):
         """
@@ -35,10 +51,16 @@ class RoboticArmController:
             degrees (float): The angle to rotate in degrees (positive for CW, negative for CCW).
             wait (int): The delay between PWM signals in microseconds.
         """
+        global arm_b_err
         direction = 0 if degrees > 0 else 1  # CW = 0, CCW = 1
-        steps = abs(degrees) * self.steps_per_revolution * self.gear_ratio / 360
+        compensated_degree = np.fix((degrees + arm_b_err) / self.deg_per_step) * self.deg_per_step
+        arm_b_err = compensated_degree - (degrees + arm_b_err)
+
+        steps = abs(compensated_degree) * self.steps_per_revolution * self.gear_ratio / 360
         message = f"rot_b {direction} {int(steps)} {wait}"
         self.serial_connection.write((message + '\n').encode())
+
+        return np.sign(degrees) * compensated_degree
 
     def move_arm(self, start_angle_a, start_angle_b, target_x, target_y, l_a, l_b):
         """
@@ -82,14 +104,56 @@ class RoboticArmController:
         # Send commands to the arms to rotate
         #self.rotate_arm_a(-delta_a, 5000)  # Adjust wait as needed
         #self.rotate_arm_b(-delta_b, 5000)
+        global arm_a_err, arm_b_err
+        compensated_delta_a = np.fix((delta_a + arm_a_err) / self.deg_per_step) * self.deg_per_step
+        arm_a_err = compensated_delta_a - (delta_a + arm_a_err)
+        compensated_delta_b = np.fix((delta_b + arm_b_err) / self.deg_per_step) * self.deg_per_step
+        arm_b_err = compensated_delta_b - (delta_b + arm_b_err)
 
-        message = f"comb_rot {int(bool(delta_a>0))} {abs(int(delta_a * self.steps_per_deg))} {int(bool(delta_b>0))} {abs(int(delta_b * self.steps_per_deg))} {4000} "
+        message = f"comb_rot {int(bool(delta_a>0))} {abs(int(np.fix(delta_a * self.steps_per_deg)))} {int(bool(delta_b>0))} {abs(int(np.fix(delta_b * self.steps_per_deg)))} {4000} "
         self.serial_connection.write((message + '\n').encode())
         print(message)
         print(
             f"Moved arm to target ({target_x}, {target_y}) with new angles: A={angle_a_new:.2f}, B={angle_b_new:.2f},\
                 angle rotated is A={delta_a:.2f} and B={delta_b:.2f}")
-        return angle_a_new, angle_b_new
+        angle_a_final = start_angle_a + compensated_delta_a
+        angle_b_final = start_angle_b + compensated_delta_b
+        return angle_a_final, angle_b_final
+
+    def raster(self, tl_x, tl_y, area, delay):
+        """
+        start_X and start_Y are the coordinate in mm of the top left of the area,
+        area is a rectangular grid (2D array) where 1 is area that the arm should move to.
+        dist_per_pix is the real life distance in mm
+
+        This function will have the arm trace any irregular shaped area represented as a 2D array.
+        """
+        global arm_a_deg, arm_b_deg
+        global dist_per_pix
+
+        rows = len(area)
+        cols = len(area[0])
+
+        # Move to the initial position (top-left corner)
+        arm_a_deg, arm_b_deg = self.move_arm(arm_a_deg, arm_b_deg, tl_x, tl_y, 150, 150)
+        time.sleep(3)
+
+        for row in range(rows):
+            if row % 2 == 0:
+                # Left-to-right movement
+                col_range = range(cols)
+            else:
+                # Right-to-left movement (zigzag)
+                col_range = range(cols - 1, -1, -1)
+
+            for col in col_range:
+                if area[row][col] == 1:
+                    target_x = tl_x + col * dist_per_pix
+                    target_y = tl_y - row * dist_per_pix
+
+                    # Move to the next valid position
+                    arm_a_deg, arm_b_deg = self.move_arm(arm_a_deg, arm_b_deg, target_x, target_y, 150, 150)
+                    time.sleep(delay)
 
 
 class SerialCommApp:
@@ -168,7 +232,7 @@ class SerialCommApp:
         if self.serial_connection and self.serial_connection.is_open:
             message = self.message_entry.get()
             if message:
-                if message.startswith("rotate_arm") or message.startswith("move_arm"):
+                if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster"):
                     parse_and_execute_command(message, arm)
                 else:
                     try:
@@ -258,6 +322,10 @@ def parse_and_execute_command(command, arm_controller, wait=5000):
             # Call the rotate_arm_a function with the extracted degrees
             global arm_a_deg, arm_b_deg
             arm_a_deg, arm_b_deg = arm_controller.move_arm(arm_a_deg, arm_b_deg, x_target, y_target, length_a, length_b)
+        elif command.startswith("raster"):
+            print("1111")
+            grid = np.ones((8, 8))
+            arm_controller.raster(-200, 200, grid)
     except (ValueError, IndexError) as e:
         raise Exception(f"Error parsing command: {e}")
 

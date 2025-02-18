@@ -172,9 +172,47 @@ void comb_rot(bool clockwise_a, int steps_a, bool clockwise_b, int steps_b, int 
       Serial.println(x);
     }
   }
-
-  
 }
+void comb_rot2(bool clockwise_a, int steps_a, bool clockwise_b, int steps_b, int wait){
+  if (clockwise_a){
+    digitalWrite(dirPin, HIGH);
+  } else {
+    digitalWrite(dirPin, LOW);
+  }
+
+  if (clockwise_b){
+    digitalWrite(dirPin2, HIGH);
+  } else {
+    digitalWrite(dirPin2, LOW);
+  }
+
+  int comb_step = min(steps_a, steps_b);
+  
+  Serial.println(String(comb_step) + String(steps_a) + String(steps_b));
+  for (int x = 0; x < comb_step; x++){
+    digitalWrite(stepPin, HIGH);
+    digitalWrite(stepPin2, HIGH);
+    delayMicroseconds(wait);
+    digitalWrite(stepPin, LOW);
+    digitalWrite(stepPin2, LOW);
+    delayMicroseconds(wait);
+  }
+  for (int x = 0; x < steps_a - comb_step; x++){
+    digitalWrite(stepPin, HIGH);
+    delayMicroseconds(wait);
+    digitalWrite(stepPin, LOW);
+    delayMicroseconds(wait);
+  }
+  
+  for (int x = 0; x < steps_b - comb_step; x++){
+    digitalWrite(stepPin2, HIGH);
+    delayMicroseconds(wait);
+    digitalWrite(stepPin2, LOW);
+    delayMicroseconds(wait);
+  }
+
+}
+
 
 void loop() {
   if (Serial.available() > 0) {
