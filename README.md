@@ -23,3 +23,15 @@ Automatic scanner cylindrical coordinate robotic arm bioprinter for burn wound t
 * Integrate ToF (holder is almost ready, not tested yet)
 * Springed pen holder
 * Fix backlash issue.
+=======
+
+### Tricks to get by setup issues
+#### For Mac M1 
+If you system is managed by Homebrew, your library installation attempts most like WILL NOT WORK
+To get around that, create a virtual environment
+* python3 -m venv venv
+* source venv/bin/activate
+tkinter installation
+* brew install python-tk
+serial installation 
+* pip install pyserial
