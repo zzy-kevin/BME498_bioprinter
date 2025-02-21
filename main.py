@@ -5,6 +5,10 @@ import serial
 import serial.tools.list_ports
 import numpy as np
 import math
+import tkinter.font as tkFont
+from PIL import Image, ImageTk
+
+
 
 """
 We have a global arm_a and arm_b deg so we can store the current position of the robotic arm.
@@ -17,6 +21,8 @@ arm_b_deg = 0.0
 dist_per_pix = 8
 arm_a_err = 0.0
 arm_b_err = 0.0
+test_times = 0
+
 
 class RoboticArmController:
     def __init__(self, serial_connection):
@@ -156,7 +162,7 @@ class RoboticArmController:
                     time.sleep(delay)
 
 
-class SerialCommApp:
+class SerialCommApp():
     def __init__(self, root):
         self.root = root
         self.root.title("ESP32 Serial Communication")
@@ -166,52 +172,192 @@ class SerialCommApp:
         self.baudrate = 115200
         self.serial_connection = None
 
+        # Read variables
+        self.dummy_var1 = "Dummy 1"
+        self.dummy_var2 = 100
+        self.dummy_var3 = 3.14
+        self.dummy_var4 = True
+        self.dummy_var5 = "Test"
+
+        self.var_list = ["arm_a_deg", "arm_b_deg", "dist_per_pix", "arm_a_err", "arm_b_err", "test_times"]
+        self.var_display_name_list = ["1st Arm Angle", "2nd Arm Angle", "mm/pix", "1st joint degree error", "2nd joint degree error", "test time"]
+        global arm_a_deg, arm_b_deg, dist_per_pix, arm_a_err, arm_b_err
+        global test_times
+
+        default_font = tkFont.nametofont("TkDefaultFont")
+        default_font.config(family="Lekton", size=12)
+
+        # root.option_add("*Background", "white")
+        # root.option_add("*Frame.Background", "white")
+        # root.option_add("*Label.Background", "white")
+        # root.option_add("*Button.Background", "white")
+        # root.option_add("*Entry.Background", "white")
+
+        def apply_bg(widget, color):
+            widget.configure(bg=color)
+            if isinstance(widget, tk.Tk) or isinstance(widget, tk.Frame):
+                for child in widget.winfo_children():
+                    try:
+                        apply_bg(child, color)
+                    except:
+                        pass
+
+
         # GUI Layout
         self.create_widgets()
 
+        print(tkFont.families())
+
+        apply_bg(self.root, "white")
+
+
+
+
+
     def create_widgets(self):
+        # Create main frames
+
+        left_frame = tk.Frame(self.root, borderwidth=4, relief=tk.RIDGE)
+        left_frame.pack(side="left", fill="y", expand=0)
+        left_frame.columnconfigure(0, minsize=300)
+
+        right_frame = tk.Frame(self.root, borderwidth=4, relief=tk.RIDGE)
+        right_frame.pack(side="right", fill="none", expand=0)
+
+        self.root.grid_columnconfigure(0, weight=1)
+        self.root.grid_columnconfigure(1, weight=1)
+        self.root.grid_rowconfigure(0, weight=1)
+
+        # Left Panel
+        self.create_left_panel(left_frame)
+
+        # Right Panel (existing widgets)
+        self.create_right_panel(right_frame)
+
+    def create_left_panel(self, parent):
+        # Create variable rows
+        self.var_widgets = []
+        for i in range(len(self.var_list)):
+            row_frame = tk.Frame(parent)
+            row_frame.grid(row=i, column=0, pady=2, sticky="EW")
+            frame = tk.Frame(row_frame)
+            frame.pack(fill="x")
+
+            # Variable name label
+            name_label = tk.Label(frame, text=self.var_display_name_list[i])
+            name_label.pack(side="left")
+
+            # Variable name label
+            dash_label = tk.Label(frame, text=str((30-len(self.var_display_name_list[i])) * "-"))
+            dash_label.pack(side="left")
+
+            # Entry widget
+            entry = tk.Entry(frame, width=12)
+            entry.pack(side="right", padx=10)
+
+            # Current value label
+            current_value = str(globals()[self.var_list[i]])
+            value_label = tk.Label(frame, text=current_value)
+            value_label.pack(side="right")
+
+
+
+            self.var_widgets.append({
+                "label": value_label,
+                "entry": entry,
+                "var_name": self.var_list[i]
+            })
+        # Update button
+        update_button = ttk.Button(parent, text="Update Variables", command=self.update_variables)
+        update_button.grid(sticky="se")
+
+
+        # Add some padding around all elements
+        for child in parent.winfo_children():
+            child.grid_configure(padx=5, pady=2)
+
+    def create_right_panel(self, parent):
         # Port Selection
-        port_label = ttk.Label(self.root, text="Select Port:")
-        port_label.grid(row=0, column=0, padx=5, pady=5)
+        port_label = tk.Label(parent, text="Select Port:")
+        port_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
         self.port_menu = ttk.Combobox(
-            self.root, textvariable=self.selected_port, state="readonly", width=15
+            parent, textvariable=self.selected_port, state="readonly", width=15
         )
-        self.port_menu.grid(row=0, column=1, padx=5, pady=5)
+        self.port_menu.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
-        refresh_button = ttk.Button(self.root, text="Refresh", command=self.refresh_ports)
-        refresh_button.grid(row=0, column=2, padx=5, pady=5)
+        refresh_button = ttk.Button(parent, text="Refresh", command=self.refresh_ports)
+        refresh_button.grid(row=0, column=2, padx=5, pady=5, sticky="w")
 
         # Connect Button
-        self.connect_button = ttk.Button(self.root, text="Connect", command=self.connect_serial)
-        self.connect_button.grid(row=0, column=3, padx=5, pady=5)
+        self.connect_button = ttk.Button(parent, text="Connect", command=self.connect_serial)
+        self.connect_button.grid(row=0, column=3, padx=5, pady=5, sticky="w")
 
         # Message Input
-        message_label = ttk.Label(self.root, text="Message:")
-        message_label.grid(row=1, column=0, padx=5, pady=5)
+        message_label = tk.Label(parent, text="Message:")
+        message_label.grid(row=1, column=0, padx=5, pady=5, sticky="w")
 
-        self.message_entry = ttk.Entry(self.root, width=30)
-        self.message_entry.grid(row=1, column=1, columnspan=2, padx=5, pady=5)
+        self.message_entry = tk.Entry(parent, width=30)
+        self.message_entry.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky="w")
 
-        send_button = ttk.Button(self.root, text="Send", command=self.send_message)
-        send_button.grid(row=1, column=3, padx=5, pady=5)
+        send_button = ttk.Button(parent, text="Send", command=self.send_message)
+        send_button.grid(row=1, column=3, padx=5, pady=5, sticky="w")
 
         # Output Text Box
-        output_label = ttk.Label(self.root, text="Response:")
-        output_label.grid(row=2, column=0, padx=5, pady=5)
+        output_label = tk.Label(parent, text="Response:")
+        output_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
 
-        self.output_text = tk.Text(self.root, width=50, height=10, state="disabled")
-        self.output_text.grid(row=3, column=0, columnspan=4, padx=5, pady=5)
+        self.output_text = tk.Text(parent, width=50, height=10, state="disabled")
+        self.output_text.grid(row=3, column=0, columnspan=4, padx=5, pady=5, sticky="w")
+
 
         # Refresh ports at startup
         self.refresh_ports()
 
+    def update_variables(self):
+        for widget in self.var_widgets:
+            entry = widget["entry"]
+            new_value = entry.get().strip()
+
+            if new_value:
+                var_name = widget["var_name"]
+                current_value = globals()[var_name]
+
+                try:
+                    # Convert input to appropriate type
+                    if isinstance(current_value, bool):
+                        converted_value = new_value.lower() == "true"
+                    elif isinstance(current_value, float):
+                        converted_value = float(new_value)
+                    elif isinstance(current_value, int):
+                        converted_value = int(new_value)
+                    else:
+                        converted_value = str(new_value)
+
+                    globals()[var_name] = converted_value
+                    widget["label"].config(text=str(converted_value))
+                    entry.delete(0, tk.END)
+                except ValueError:
+                    pass
+
+    def refresh_variables_display(self):
+        for i, widget in enumerate(self.var_widgets):
+            var_name = widget["var_name"]
+            current_value = globals()[var_name]
+            widget["label"].config(text=str(current_value))
+
+
+
+
     def refresh_ports(self):
         """Refresh the available serial ports."""
+        global test_times
+        test_times += 1
         ports = [port.device for port in serial.tools.list_ports.comports()]
         self.port_menu['values'] = ports
         if ports:
             self.port_menu.current(0)
+
 
     def connect_serial(self):
         """Connect to the selected serial port."""
@@ -251,6 +397,16 @@ class SerialCommApp:
                 messagebox.showwarning("Warning", "Message cannot be empty!")
         else:
             messagebox.showerror("Error", "No active connection!")
+
+    def read_and_wait(self):
+        """
+        Wait and read message from ESP32 until a message end token has been received.
+        """
+        current_msg = ""
+        while not(current_msg.startswith("##END")):
+            current_msg = self.serial_connection.readline().decode().strip()
+        if current_msg:
+            self.display_output(current_msg)
 
     def display_output(self, message):
         """Display the response in the output text box."""
@@ -329,6 +485,10 @@ def parse_and_execute_command(command, arm_controller, wait=5000):
     except (ValueError, IndexError) as e:
         raise Exception(f"Error parsing command: {e}")
 
+def update_gui():
+    global app
+    app.refresh_variables_display()
+    app.root.after(1000, update_gui)
 
 # Main application
 if __name__ == "__main__":
@@ -337,4 +497,6 @@ if __name__ == "__main__":
     arm = RoboticArmController(app.serial_connection)
 
     root.protocol("WM_DELETE_WINDOW", app.close_serial)  # Ensure serial is closed on exit
+
+    update_gui()
     root.mainloop()
