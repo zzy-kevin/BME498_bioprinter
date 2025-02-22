@@ -18,20 +18,16 @@ Automatic scanner cylindrical coordinate robotic arm bioprinter for burn wound t
 * Generalize code to receive serial command from pc.
 * Add comments and doc string
 * VL53L1X integration including: reduce FOV, increased timing budget, take avg, curve smoothing, offset calibration, individual SPAD calibration, and more...
-* Maybe make a different version of comb_rot with linear travel
-* Fix backlash and make end travel linearly, might be a code or hardware issue.
 
 ### PC side
-* Add comments, especially for IK
+* Add comments for GUI
 * Scanning system
 * Feedback system
 
 ### Hardware
-* More gear reduction for the 1st arm? or half/quarter step.
 * Better power delivery
-* Integrate ToF (holder is almost ready, not tested yet)
+* Integrate ToF (holder is ready, not tested yet)
 * Springed pen holder
-* Fix backlash issue.
 
 
 ### Tricks to get by setup issues
@@ -51,3 +47,10 @@ serial installation
 * Feb 20: New printer variable monitoring and editing.
   * Started new communication code over serial.
   * Minor GUI change
+* Feb 22: 
+  * New move_arm_new command that compile a list of motion which will be sent to esp32.
+  * New Arduino code that receives, combines, and execute a series of motion.
+  * New quarter microstepping for all motor, might not need this for Z
+  * Some GUI bug fix and lots of IK fix.
+  * Errors from step quantization is still off by a bit. We might need to change to tracking steps instead of degree.
+    * About +- 5 degrees for 2nd arm after raster (which has 100 movement * num_segment)

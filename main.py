@@ -28,9 +28,9 @@ class RoboticArmController:
     def __init__(self, serial_connection):
         self.serial_connection = serial_connection
         self.steps_per_revolution = 200  # Example: 200 steps per motor revolution (1.8° per step)
-        self.gear_ratio = 4  # Reduction ratio (motor:arm = 1:4)
+        self.gear_ratio = 4*4  # Reduction ratio (motor:arm = 1:4) and we are doing quarter microstepping so 4*4
         self.steps_per_deg = self.steps_per_revolution * self.gear_ratio / 360
-        self.deg_per_step = 1/ self.steps_per_deg
+        self.deg_per_step = 1 / self.steps_per_deg
 
     def rotate_arm_a(self, degrees, wait):
         """
@@ -68,11 +68,246 @@ class RoboticArmController:
 
         return np.sign(degrees) * compensated_degree
 
-    def move_arm(self, start_angle_a, start_angle_b, target_x, target_y, l_a, l_b):
+    def move_arm_linear(self, start_angle_a, start_angle_b, target_x, target_y, l_a, l_b):
+        """
+        Breakdown the path into small segment and call move_arm to traverse each to obtain a linear path
+        """
+        global arm_a_deg, arm_b_deg
+        x_start = l_a * math.cos(math.radians(start_angle_a)) + \
+                  l_b * math.cos(math.radians(start_angle_a + start_angle_b))
+        y_start = l_a * math.sin(math.radians(start_angle_a)) + \
+                  l_b * math.sin(math.radians(start_angle_a + start_angle_b))
+        x_len = target_x - x_start
+        y_len = target_y - y_start
+        curr_angle_a = start_angle_a
+        curr_angle_b = start_angle_b
+        break_len = 10
+        seg_count = round(max(x_len, y_len) / break_len)
+        dy = y_len / seg_count
+        dx = x_len / seg_count
+        for i in range(seg_count):
+            segment_x = x_start + dx*(i+1)
+            segment_y = y_start + dy*(i+1)
+            curr_angle_a, curr_angle_b = self.move_arm_old(curr_angle_a, curr_angle_b, segment_x, segment_y, l_a, l_b)
+
+        return curr_angle_a, curr_angle_b
+
+    def move_arm_old(self, start_angle_a, start_angle_b, target_x, target_y, l_a, l_b):
         """
         Calculate the angles for the robotic arm to move to the target point and send commands to the arms.
         """
         # Calculate the starting position
+        x_start = l_a * math.cos(math.radians(start_angle_a)) + \
+                  l_b * math.cos(math.radians(start_angle_a + start_angle_b))
+        y_start = l_a * math.sin(math.radians(start_angle_a)) + \
+                  l_b * math.sin(math.radians(start_angle_a + start_angle_b))
+
+        # print(f"Starting Position: x = {x_start:.2f}, y = {y_start:.2f}")
+
+        # Distance to the target
+        d = math.sqrt(target_x ** 2 + target_y ** 2)
+
+        if d > l_a + l_b:
+            raise ValueError("Target is unreachable! Point is outside the arm's reach.")
+
+        # Calculate angle_b (elbow angle)
+        cos_angle_b = (target_x ** 2 + target_y ** 2 - l_a ** 2 - l_b ** 2) / (2 * l_a * l_b)
+        angle_b_new = math.degrees(math.acos(cos_angle_b))
+
+        # Calculate angle_a (base angle)
+        phi = math.atan2(target_y, target_x)
+        theta = math.atan2(l_b * math.sin(math.radians(angle_b_new)),
+                           l_a + l_b * math.cos(math.radians(angle_b_new)))
+        angle_a_new = math.degrees(phi - theta)
+
+        print(f"Target Position: x = {target_x}, y = {target_y}")
+        print(f"New Angles: angle_a = {angle_a_new:.2f}, angle_b = {angle_b_new:.2f}")
+
+        # Calculate the degree changes
+        delta_a = angle_a_new - start_angle_a
+        delta_b = angle_b_new - start_angle_b
+
+        global arm_a_err, arm_b_err
+        compensated_delta_a = np.fix((delta_a + arm_a_err) / self.deg_per_step) * self.deg_per_step
+        arm_a_err = - (compensated_delta_a - (delta_a + arm_a_err))
+        compensated_delta_b = np.fix((delta_b + arm_b_err) / self.deg_per_step) * self.deg_per_step
+        arm_b_err = - (compensated_delta_b - (delta_b + arm_b_err))
+
+        message = f"comb_rot {int(bool(delta_a>0))} {abs(int(np.fix(delta_a * self.steps_per_deg)))} {int(bool(delta_b>0))} {abs(int(np.fix(delta_b * self.steps_per_deg)))} {10000} "
+        self.serial_connection.write((message + '\n').encode())
+        print(message)
+        print(
+            f"Moved arm to target ({target_x}, {target_y}) with new angles: A={angle_a_new:.2f}, B={angle_b_new:.2f},\
+                angle rotated is A={delta_a:.2f} and B={delta_b:.2f}")
+        angle_a_final = start_angle_a + compensated_delta_a
+        angle_b_final = start_angle_b + compensated_delta_b
+        return angle_a_final, angle_b_final
+
+    def move_arm_new(self, start_angle_a, start_angle_b, target_x, target_y, l_a, l_b):
+        # Using the angle of two arm to calculate initial end-effector position
+        x0 = l_a * math.cos(math.radians(start_angle_a)) + \
+             l_b * math.cos(math.radians(start_angle_a + start_angle_b))
+        y0 = l_a * math.sin(math.radians(start_angle_a)) + \
+             l_b * math.sin(math.radians(start_angle_a + start_angle_b))
+
+        # Calculate target position using IK, returns the two target angle that we want to reach
+        # target_angle_a, target_angle_b = self.calculate_ik(target_x, target_y, l_a, l_b)
+
+        # Generate linear path in Cartesian space, which will have x segment where x is the path distance in mm.
+        # num_segments = max(min(90, int(np.floor(math.hypot(target_x - x0, target_y - y0)))), 5)
+        num_segments = 20
+
+        # this is our final command that we sent to esp32
+        command_sequence = []
+        # getting the global arm a and b angle
+        global arm_a_err, arm_b_err
+
+        # Store previous angles for delta calculation
+        prev_angle_a = start_angle_a
+        prev_angle_b = start_angle_b
+
+        # loop through each line segment and generate motion command
+        for i in range(1, num_segments + 1):
+
+            # this is the target x and y for this segment
+            x = x0 + i * (target_x - x0) / num_segments
+            y = y0 + i * (target_y - y0) / num_segments
+
+            # Calculate IK for intermediate point, comp means error is compensated and stored in global var
+            comp_delta_a, comp_delta_b = self.calculate_ik(x, y, l_a, l_b)
+
+            # Convert to steps, rounding shouldn't be needed here, but calculate_ik returns an angle for now
+            steps_a = int(round(comp_delta_a * self.steps_per_deg))
+            steps_b = int(round(comp_delta_b * self.steps_per_deg))
+
+            # Generate Bresenham steps for this segment
+            dir_a = 1 if steps_a > 0 else 0
+            dir_b = 1 if steps_b > 0 else 0
+            abs_a = abs(steps_a)
+            abs_b = abs(steps_b)
+
+            # Bresenham algorithm for this segment, note that this is only linear movement in polar space
+            # we can fix this later, or just set line segment above to a larger number, so we don't have to worry
+            # about having motion inside each segment linear
+            dx = abs_a
+            dy = abs_b
+            err = 0
+            x_step = 0
+            y_step = 0
+
+            # Here we start with the direction for both arm for this segment movement
+            local_sequence = "CMD " + str(int(dir_a)) + " " + str(int(dir_b)) + " "
+
+            # while x_step < dx or y_step < dy:
+            #     step_cmd = []
+            #     err2 = 2 * err
+            #
+            #     if err2 > -dy:
+            #         err -= dy
+            #         x_step += 1
+            #         step_cmd.append('A')
+            #
+            #     if err2 < dx:
+            #         err += dx
+            #         y_step += 1
+            #         step_cmd.append('B')
+            #
+            #     # Calculate dynamic delay based on segment progress
+            #     current_step = max(x_step, y_step)
+            #     total_steps = max(dx, dy)
+            #     delay = self.calculate_delay(current_step, total_steps)
+            #
+            #     # the command for this one step
+            #     local_sequence += f"{''.join(step_cmd)}:{delay} "
+
+            stepped = 0
+            for j in range(max(abs_a, abs_b)):
+                step_cmd = []
+
+                if abs_a == 0:
+                    step_cmd.append("B")
+                elif abs_b == 0:
+                    step_cmd.append("A")
+                elif abs_a > abs_b:
+                    step_cmd.append("A")
+                    if ((abs_a / abs_b) * stepped) < j:
+                        step_cmd.append("B")
+                        stepped += 1
+                elif abs_b > abs_a:
+                    step_cmd.append("B")
+                    if ((abs_b / abs_a) * stepped) < j:
+                        step_cmd.append("A")
+                        stepped += 1
+                else:
+                    step_cmd.append("AB")
+
+                local_sequence += f"{''.join(step_cmd)}:{5000} "
+
+            # command_sequence.extend(local_sequence)
+            prev_angle_a += comp_delta_a
+            prev_angle_b += comp_delta_b
+
+            # and we don't need to update global arm angle since it's done in calculate_ik
+            # sending the motion command for this local segment, but esp32 will only execute once it has all segment
+            command_str = "CMD ".join(local_sequence)
+            print("Sending one segment...")
+            print(local_sequence)
+            self.serial_connection.write((local_sequence + "\n").encode())
+            response = ""
+            # wait for esp32 to finish reading and return completed
+            # while response != "##ACTION COMPLETED":
+            #     try:
+            #         # print(response)
+            #         response = self.serial_connection.readline().decode().strip()
+            #         time.sleep(0.02)
+            #     except:
+            #         print("ERROR reading from esp32 during segment motion.")
+        print("DONE sent")
+
+        # remember to only use ASCII encoded character < 127, we use @@ here
+        self.serial_connection.write(("DONE" + "\n").encode())
+
+        # Build final command string
+        # old code that combine each local segment and then them down to ~2000 char command to avoid blown out serial
+        # instead I will try to send each local segment individually and then combine them on the esp32 side
+        # this might be slower?
+        """
+        dir_a_final = 1 if (target_angle_a > start_angle_a) else 0
+        dir_b_final = 1 if (target_angle_b > start_angle_b) else 0
+        command_str = f"CMD {dir_a_final} {dir_b_final} " + " ".join(command_sequence)
+        print("Sending in segment...")
+        trunc_command_str = command_str[8:]
+        prefix_command_str = command_str[:8]
+        print(prefix_command_str)
+        while trunc_command_str != "":
+            if len(trunc_command_str) > 2100:
+                end_index = trunc_command_str[2000:].find(" ") + 2000
+                this_segment_command_str = trunc_command_str[:end_index]
+                print(this_segment_command_str)
+                trunc_command_str = trunc_command_str[end_index:]
+                self.serial_connection.write((prefix_command_str + this_segment_command_str + '\n').encode())
+            else:
+                self.serial_connection.write((prefix_command_str + trunc_command_str + '\n').encode())
+                trunc_command_str = ""
+
+            response = ""
+            while response != "@@ACTION COMPLETED":
+                try:
+                    print(response)
+                    response = self.serial_connection.readline().decode().strip()
+                    time.sleep(0.2)
+                except:
+                    pass
+        print(command_str)
+
+        """
+
+        return prev_angle_a, prev_angle_b
+
+    def calculate_ik(self, target_x, target_y, l_a, l_b):
+        global arm_a_deg, arm_b_deg
+        start_angle_a = arm_a_deg
+        start_angle_b = arm_b_deg
         x_start = l_a * math.cos(math.radians(start_angle_a)) + \
                   l_b * math.cos(math.radians(start_angle_a + start_angle_b))
         y_start = l_a * math.sin(math.radians(start_angle_a)) + \
@@ -103,28 +338,26 @@ class RoboticArmController:
         delta_a = angle_a_new - start_angle_a
         delta_b = angle_b_new - start_angle_b
 
-
-
-        #return new_angle_a, new_angle_b
-
-        # Send commands to the arms to rotate
-        #self.rotate_arm_a(-delta_a, 5000)  # Adjust wait as needed
-        #self.rotate_arm_b(-delta_b, 5000)
         global arm_a_err, arm_b_err
         compensated_delta_a = np.fix((delta_a + arm_a_err) / self.deg_per_step) * self.deg_per_step
         arm_a_err = compensated_delta_a - (delta_a + arm_a_err)
         compensated_delta_b = np.fix((delta_b + arm_b_err) / self.deg_per_step) * self.deg_per_step
         arm_b_err = compensated_delta_b - (delta_b + arm_b_err)
 
-        message = f"comb_rot {int(bool(delta_a>0))} {abs(int(np.fix(delta_a * self.steps_per_deg)))} {int(bool(delta_b>0))} {abs(int(np.fix(delta_b * self.steps_per_deg)))} {4000} "
-        self.serial_connection.write((message + '\n').encode())
-        print(message)
-        print(
-            f"Moved arm to target ({target_x}, {target_y}) with new angles: A={angle_a_new:.2f}, B={angle_b_new:.2f},\
-                angle rotated is A={delta_a:.2f} and B={delta_b:.2f}")
-        angle_a_final = start_angle_a + compensated_delta_a
-        angle_b_final = start_angle_b + compensated_delta_b
-        return angle_a_final, angle_b_final
+        arm_a_deg += compensated_delta_a
+        arm_b_deg += compensated_delta_b
+
+        return compensated_delta_a, compensated_delta_b
+
+    def calculate_delay(self, current_step, total_steps):
+        # Smooth trapezoidal velocity profile
+        return 10000
+        accel_steps = min(50, total_steps // 3)
+        if current_step < accel_steps:
+            return 10000 + int(9000 * (1 - current_step / accel_steps))
+        elif current_step > total_steps - accel_steps:
+            return 10000 + int(9000 * (1 - (total_steps - current_step) / accel_steps))
+        return 10000
 
     def raster(self, tl_x, tl_y, area, delay):
         """
@@ -141,7 +374,7 @@ class RoboticArmController:
         cols = len(area[0])
 
         # Move to the initial position (top-left corner)
-        arm_a_deg, arm_b_deg = self.move_arm(arm_a_deg, arm_b_deg, tl_x, tl_y, 150, 150)
+        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, 150, 150)
         time.sleep(3)
 
         for row in range(rows):
@@ -158,7 +391,7 @@ class RoboticArmController:
                     target_y = tl_y - row * dist_per_pix
 
                     # Move to the next valid position
-                    arm_a_deg, arm_b_deg = self.move_arm(arm_a_deg, arm_b_deg, target_x, target_y, 150, 150)
+                    arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, target_x, target_y, 150, 150)
                     time.sleep(delay)
 
 
@@ -171,13 +404,6 @@ class SerialCommApp():
         self.selected_port = tk.StringVar()
         self.baudrate = 115200
         self.serial_connection = None
-
-        # Read variables
-        self.dummy_var1 = "Dummy 1"
-        self.dummy_var2 = 100
-        self.dummy_var3 = 3.14
-        self.dummy_var4 = True
-        self.dummy_var5 = "Test"
 
         self.var_list = ["arm_a_deg", "arm_b_deg", "dist_per_pix", "arm_a_err", "arm_b_err", "test_times"]
         self.var_display_name_list = ["1st Arm Angle", "2nd Arm Angle", "mm/pix", "1st joint degree error", "2nd joint degree error", "test time"]
@@ -209,10 +435,6 @@ class SerialCommApp():
         print(tkFont.families())
 
         apply_bg(self.root, "white")
-
-
-
-
 
     def create_widgets(self):
         # Create main frames
@@ -335,7 +557,10 @@ class SerialCommApp():
                         converted_value = str(new_value)
 
                     globals()[var_name] = converted_value
-                    widget["label"].config(text=str(converted_value))
+                    if isinstance(converted_value, float):
+                        widget["label"].config(text=str(round(converted_value, 4)))
+                    else:
+                        widget["label"].config(text=str(converted_value))
                     entry.delete(0, tk.END)
                 except ValueError:
                     pass
@@ -344,9 +569,9 @@ class SerialCommApp():
         for i, widget in enumerate(self.var_widgets):
             var_name = widget["var_name"]
             current_value = globals()[var_name]
+            if isinstance(current_value, float):
+                current_value = round(current_value, 4)
             widget["label"].config(text=str(current_value))
-
-
 
 
     def refresh_ports(self):
@@ -403,7 +628,7 @@ class SerialCommApp():
         Wait and read message from ESP32 until a message end token has been received.
         """
         current_msg = ""
-        while not(current_msg.startswith("##END")):
+        while not(current_msg.startswith("@@END")):
             current_msg = self.serial_connection.readline().decode().strip()
         if current_msg:
             self.display_output(current_msg)
@@ -477,11 +702,11 @@ def parse_and_execute_command(command, arm_controller, wait=5000):
 
             # Call the rotate_arm_a function with the extracted degrees
             global arm_a_deg, arm_b_deg
-            arm_a_deg, arm_b_deg = arm_controller.move_arm(arm_a_deg, arm_b_deg, x_target, y_target, length_a, length_b)
+            arm_a_deg, arm_b_deg = arm_controller.move_arm_new(arm_a_deg, arm_b_deg, x_target, y_target, length_a, length_b)
         elif command.startswith("raster"):
             print("1111")
-            grid = np.ones((8, 8))
-            arm_controller.raster(-200, 200, grid)
+            grid = np.ones((10, 10))
+            arm_controller.raster(-200, 200, grid, 0.5)
     except (ValueError, IndexError) as e:
         raise Exception(f"Error parsing command: {e}")
 
