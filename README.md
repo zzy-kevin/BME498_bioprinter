@@ -41,6 +41,7 @@ tkinter installation
 serial installation 
 * pip install pyserial
 
+
 ### Changelog
 * Feb 18: New polar to cartesian error compensation code added, still need a bit more testing.
   * Need to finish raster code

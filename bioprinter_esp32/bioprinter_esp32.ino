@@ -5,19 +5,13 @@ VL53L1X sensor;
 
 const int dirPin = 7;
 const int stepPin = 6;
-cons#include <Wire.h>
-#include <VL53L1X.h>
-
-VL53L1X sensor;
-
-const int dirPin = 7;
-const int stepPin = 6;
 const int dirPin2 = 16;
 const int stepPin2 = 15;
 const int dirPin3 = 5;
 const int stepPin3 = 4;
 const int stepsPerRevolution = 200;
 const int slow_wait = 7000;
+
 const int HIGHPin = 42;
 
 void setup() {
@@ -454,6 +448,7 @@ const int dirPin3 = 5;
 const int stepPin3 = 4;
 const int stepsPerRevolution = 200;
 const int slow_wait = 7000;
+
 
 void setup() {
   // Start serial communication with the computer
