@@ -54,3 +54,6 @@ serial installation
   * Some GUI bug fix and lots of IK fix.
   * Errors from step quantization is still off by a bit. We might need to change to tracking steps instead of degree.
     * About +- 5 degrees for 2nd arm after raster (which has 100 movement * num_segment)
+* Feb 27:
+  * Added ToF integration.
+  * Bug fix.

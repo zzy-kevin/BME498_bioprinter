@@ -6,9 +6,42 @@ import serial.tools.list_ports
 import numpy as np
 import math
 import tkinter.font as tkFont
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+from mpl_toolkits.mplot3d import Axes3D
 from PIL import Image, ImageTk
 
 
+def plot_3d_height_map(height_map):
+    # Create figure and 3D axis
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Create coordinate grids
+    x = np.arange(0, height_map.shape[1])
+    y = np.arange(0, height_map.shape[0])
+    X, Y = np.meshgrid(x, y)
+
+    depth_map = - height_map
+
+    # Plot the surface
+    surf = ax.plot_surface(X, Y, depth_map, cmap='jet',
+                           linewidth=0, antialiased=True)
+
+    # Customize plot
+    ax.set_xlabel('X Axis')
+    ax.set_ylabel('Y Axis')
+    ax.set_zlabel('Height')
+    ax.set_title('3D Height Map Visualization')
+
+    # Add color bar
+    fig.colorbar(surf, shrink=0.5, aspect=5)
+
+    name = time.time()
+    plt.savefig(str(name) + ".jpg")
+    plt.clf()
 
 """
 We have a global arm_a and arm_b deg so we can store the current position of the robotic arm.
@@ -18,7 +51,7 @@ This error is considered and updated everytime the arm is moved.
 """
 arm_a_deg = 0.0
 arm_b_deg = 0.0
-dist_per_pix = 8
+dist_per_pix = 5
 arm_a_err = 0.0
 arm_b_err = 0.0
 test_times = 0
@@ -374,8 +407,10 @@ class RoboticArmController:
         cols = len(area[0])
 
         # Move to the initial position (top-left corner)
-        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, 150, 150)
+        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, 150, 134)
         time.sleep(3)
+
+        height_map = np.zeros((rows, cols))
 
         for row in range(rows):
             if row % 2 == 0:
@@ -393,6 +428,27 @@ class RoboticArmController:
                     # Move to the next valid position
                     arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, target_x, target_y, 150, 150)
                     time.sleep(delay)
+                    dist_here = self.ask_dist()
+                    height_map[row][col] = dist_here
+        plot_3d_height_map(height_map)
+        print("saved")
+
+
+
+    def ask_dist(self):
+        global arm_a_deg, arm_b_deg
+        verify_location = str(round(arm_a_deg, 4)) + str(round(arm_b_deg, 4))
+        self.serial_connection.write(("get_dist" + verify_location + '\n').encode())
+        return_message = ""
+        while not(return_message.startswith("DIST " + verify_location)):
+            return_message = self.serial_connection.readline().decode().strip()
+            if return_message.startswith("DIST " + verify_location):
+                try:
+                    dist = float(return_message[return_message.rfind(" "):])
+                except:
+                    print("Error: Distance returned cannot be made into a float!")
+        return dist
+
 
 
 class SerialCommApp():
@@ -603,7 +659,7 @@ class SerialCommApp():
         if self.serial_connection and self.serial_connection.is_open:
             message = self.message_entry.get()
             if message:
-                if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster"):
+                if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster") or message.startswith("ask_dist"):
                     parse_and_execute_command(message, arm)
                 else:
                     try:
@@ -705,8 +761,11 @@ def parse_and_execute_command(command, arm_controller, wait=5000):
             arm_a_deg, arm_b_deg = arm_controller.move_arm_new(arm_a_deg, arm_b_deg, x_target, y_target, length_a, length_b)
         elif command.startswith("raster"):
             print("1111")
-            grid = np.ones((10, 10))
-            arm_controller.raster(-200, 200, grid, 0.5)
+            grid = np.ones((12, 12))
+            arm.raster(-170, 170, grid, 0.2)
+        elif command.startswith("ask_dist"):
+            arm_controller.ask_dist()
+
     except (ValueError, IndexError) as e:
         raise Exception(f"Error parsing command: {e}")
 
