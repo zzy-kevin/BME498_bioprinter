@@ -12,6 +12,9 @@ import matplotlib.pyplot as plt
 
 from mpl_toolkits.mplot3d import Axes3D
 from PIL import Image, ImageTk
+from segmentation import *
+from ui import *
+from capture import *
 
 
 def plot_3d_height_map(height_map):
@@ -38,7 +41,6 @@ def plot_3d_height_map(height_map):
 
     # Add color bar
     fig.colorbar(surf, shrink=0.5, aspect=5)
-
     name = time.time()
     plt.savefig(str(name) + ".jpg")
     plt.clf()
@@ -458,6 +460,7 @@ class SerialCommApp():
 
         # Variables
         self.selected_port = tk.StringVar()
+        self.selected_port_cam = tk.StringVar()
         self.baudrate = 115200
         self.serial_connection = None
 
@@ -549,6 +552,11 @@ class SerialCommApp():
         update_button = ttk.Button(parent, text="Update Variables", command=self.update_variables)
         update_button.grid(sticky="se")
 
+        #capture button
+        #capture_and_segment(display=True): the segmented mask will be displayed in the guim otherwise will just be saved as shape.png
+        capture_button = ttk.Button(parent, text="Image Capture", command=lambda: self.capture_and_segment(display=False))   
+        capture_button.grid(sticky="se")
+
 
         # Add some padding around all elements
         for child in parent.winfo_children():
@@ -571,26 +579,66 @@ class SerialCommApp():
         self.connect_button = ttk.Button(parent, text="Connect", command=self.connect_serial)
         self.connect_button.grid(row=0, column=3, padx=5, pady=5, sticky="w")
 
+        #---------------
+        port_label_cam = tk.Label(parent, text="Select Camera Port:")
+        port_label_cam.grid(row=1, column=0, padx=5, pady=5, sticky="w")
+
+        self.port_menu_cam = ttk.Combobox(
+            parent, textvariable=self.selected_port_cam, state="readonly", width=15
+        )
+        self.port_menu_cam.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+
+        refresh_button = ttk.Button(parent, text="Refresh", command=self.refresh_ports)
+        refresh_button.grid(row=1, column=2, padx=5, pady=5, sticky="w")
+
+        # # Connect Button
+        # self.connect_button = ttk.Button(parent, text="Connect", command=self.connect_cam)
+        # self.connect_button.grid(row=1, column=3, padx=5, pady=5, sticky="w")
+
+        #--------------
+
         # Message Input
         message_label = tk.Label(parent, text="Message:")
-        message_label.grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        message_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
 
         self.message_entry = tk.Entry(parent, width=30)
-        self.message_entry.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky="w")
+        self.message_entry.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky="w")
 
         send_button = ttk.Button(parent, text="Send", command=self.send_message)
-        send_button.grid(row=1, column=3, padx=5, pady=5, sticky="w")
+        send_button.grid(row=2, column=3, padx=5, pady=5, sticky="w")
 
         # Output Text Box
         output_label = tk.Label(parent, text="Response:")
-        output_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        output_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
 
         self.output_text = tk.Text(parent, width=50, height=10, state="disabled")
-        self.output_text.grid(row=3, column=0, columnspan=4, padx=5, pady=5, sticky="w")
+        self.output_text.grid(row=4, column=0, columnspan=4, padx=5, pady=5, sticky="w")
 
 
         # Refresh ports at startup
         self.refresh_ports()
+
+    def capture_and_segment(self, display = False):
+        print(self.selected_port_cam.get())
+        img_filename = image_capture(self.selected_port_cam.get())
+
+        
+
+        mask = segmentation_main(img_filename)
+        
+
+        print('Segmentation finished, mask is generated')
+        global updated_mask
+        updated_mask = edit_mask(img_filename, mask)
+
+        plt.imshow(updated_mask,cmap='gray')
+        plt.savefig("shape.png", bbox_inches="tight", dpi=300)
+
+        if display:
+            display_mask("segmented_mask.png")
+        return updated_mask
+    
+    
 
     def update_variables(self):
         for widget in self.var_widgets:
@@ -621,7 +669,7 @@ class SerialCommApp():
                 except ValueError:
                     pass
 
-    def refresh_variables_display(self):
+    def refresh_variables_display(self):  
         for i, widget in enumerate(self.var_widgets):
             var_name = widget["var_name"]
             current_value = globals()[var_name]
@@ -636,8 +684,10 @@ class SerialCommApp():
         test_times += 1
         ports = [port.device for port in serial.tools.list_ports.comports()]
         self.port_menu['values'] = ports
+        self.port_menu_cam['values'] = ports
         if ports:
             self.port_menu.current(0)
+            self.port_menu_cam.current(0)
 
 
     def connect_serial(self):
@@ -648,6 +698,20 @@ class SerialCommApp():
                     self.selected_port.get(), self.baudrate, timeout=1
                 )
                 arm.serial_connection = self.serial_connection
+                messagebox.showinfo("Success", f"Connected to {self.selected_port.get()}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to connect: {e}")
+        else:
+            messagebox.showwarning("Warning", "No port selected!")
+
+    def connect_cam(self):
+        """Connect to the selected serial port."""
+        if self.selected_port_cam.get():
+            try:
+                self.serial_connection = serial.Serial(
+                    self.selected_port_cam.get(), self.baudrate, timeout=1
+                )
+                #arm.serial_connection = self.serial_connection
                 messagebox.showinfo("Success", f"Connected to {self.selected_port.get()}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to connect: {e}")
@@ -780,6 +844,8 @@ if __name__ == "__main__":
     app = SerialCommApp(root)
     arm = RoboticArmController(app.serial_connection)
 
+    #mask = segmentation_main("3cm_1.jpg")
+    
     root.protocol("WM_DELETE_WINDOW", app.close_serial)  # Ensure serial is closed on exit
 
     update_gui()
