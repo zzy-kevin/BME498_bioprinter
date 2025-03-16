@@ -28,10 +28,10 @@ void setup() {
   digitalWrite(HIGHPin, HIGH);
 
   // Dist sensor
-  Wire.begin();
+  Wire.begin(8,9);
   Wire.setClock(400000); // use 400 kHz I2C
 
-  sensor.setTimeout(500);
+  sensor.setTimeout(100);
   if (!sensor.init())
   {
     Serial.println("Failed to detect and initialize sensor!");
@@ -254,9 +254,10 @@ void motionCommand(String message) {
   int firstSpace = message.indexOf(' ');
   int secondSpace = message.indexOf(' ', firstSpace + 1);
   int thirdSpace = message.indexOf(' ', secondSpace + 1);
+  int fourthSpace = message.indexOf(' ', thirdSpace + 1);
 
   // Validate we have at least directions
-  if (secondSpace == -1) {
+  if (secondSpace == -1 || thirdSpace == -1) {
     Serial.println("##ERROR: Missing directions");
     return;
   }
@@ -264,14 +265,16 @@ void motionCommand(String message) {
   // Get direction values
   int dirA = message.substring(firstSpace + 1, secondSpace).toInt();
   int dirB = message.substring(secondSpace + 1, thirdSpace).toInt();
+  int dirZ = message.substring(thirdSpace + 1, fourthSpace).toInt();
 
   // Set motor directions
   digitalWrite(dirPin, dirA);
   digitalWrite(dirPin2, dirB);
+  digitalWrite(dirPin3, dirZ);
 
   // Process step commands
-  int currentPos = thirdSpace;
-  const int pulseWidth = 100; // microseconds
+  int currentPos = fourthSpace;
+  const int pulseWidth = 2000; // microseconds
 
   while (currentPos != -1 && currentPos < message.length()) {
     int nextSpace = message.indexOf(' ', currentPos + 1);
@@ -289,15 +292,18 @@ void motionCommand(String message) {
     // Determine which motors to step
     bool stepA = motors.indexOf('A') != -1;
     bool stepB = motors.indexOf('B') != -1;
+    bool stepZ = motors.indexOf('Z') != -1;
 
     // Pulse motors
     if (stepA) digitalWrite(stepPin, HIGH);
     if (stepB) digitalWrite(stepPin2, HIGH);
+    if (stepZ) digitalWrite(stepPin3, HIGH);
     
     delayMicroseconds(pulseWidth);
     
     if (stepA) digitalWrite(stepPin, LOW);
     if (stepB) digitalWrite(stepPin2, LOW);
+    if (stepZ) digitalWrite(stepPin3, LOW);
 
     // Handle remaining delay
     if (delayTime > pulseWidth) {
