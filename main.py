@@ -186,6 +186,7 @@ class RoboticArmController:
         return angle_a_final, angle_b_final
 
     def move_arm_new(self, start_angle_a, start_angle_b, target_x, target_y, target_z, l_a, l_b):
+        self.serial_connection.reset_input_buffer()
         # Using the angle of two arm to calculate initial end-effector position
         x0 = l_a * math.cos(math.radians(start_angle_a)) + \
              l_b * math.cos(math.radians(start_angle_a + start_angle_b))
@@ -323,17 +324,36 @@ class RoboticArmController:
             # update global arm_z
             arm_z = z
 
+        
+            
             print(local_sequence)
+            
+            self.serial_connection.reset_input_buffer()  # Clear incoming buffer
+            self.serial_connection.reset_output_buffer() # Clear outgoing buffer
+            time.sleep(0.1)  # Short delay to ensure buffers are cleared
+
+
             self.serial_connection.write((local_sequence + "\n").encode())
-            response = ""
+            self.serial_connection.flush()
+            
+
             # wait for esp32 to finish reading and return completed
-            # while response != "##ACTION COMPLETED":
-            #     try:
-            #         # print(response)
-            #         response = self.serial_connection.readline().decode().strip()
-            #         time.sleep(0.02)
-            #     except:
-            #         print("ERROR reading from esp32 during segment motion.")
+            response = ""
+            start_time = time.time()
+            # while True:
+            #     if self.serial_connection.in_waiting > 0:  # Check if data is available
+            #         new_data = self.serial_connection.readline().decode().strip()
+            #         print(f"Received: {new_data}")
+            #         response += new_data
+                    
+            #         if "##ACTION COMPLETED" in new_data:
+            #             break
+                        
+            #     if time.time() - start_time > 5:  # 5-second timeout
+            #         print("WARNING: Timeout waiting for ESP32 response!")
+            #         break
+                    
+            #     time.sleep(0.01)  # Small delay to prevent CPU hammering
         print("DONE sent")
 
         # remember to only use ASCII encoded character < 127, we use @@ here
@@ -490,7 +510,7 @@ class RoboticArmController:
                     target_y = tl_y - row * dist_per_pix
 
                     # Move to the next valid position
-                    self.move_arm_new(arm_a_deg, arm_b_deg, target_x, target_y, height_map[row][col] - avg_h, 150, 134)
+                    self.move_arm_new(arm_a_deg, arm_b_deg, target_x, target_y, height_map[row][col] - avg_h, 150, 150)
                     time.sleep(delay)
 
     def ask_dist(self):
@@ -882,7 +902,7 @@ def parse_and_execute_command(command, arm_controller, wait=5000):
             arm_a_deg, arm_b_deg = arm_controller.move_arm_new(arm_a_deg, arm_b_deg, x_target, y_target, z_target, length_a, length_b)
         elif command.startswith("raster"):
             print("1111")
-            grid = np.ones((6, 6))
+            grid = np.ones((9, 9))
             arm.raster(-170, 170, grid, 0.2)
         elif command.startswith("ask_dist"):
             arm_controller.ask_dist()
