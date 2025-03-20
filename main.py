@@ -13,9 +13,9 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from PIL import Image, ImageTk
 
-# from segmentation import *
-# from ui import *
-# from capture import *
+from segmentation import *
+from ui import *
+from capture import *
 
 
 def plot_3d_height_map(height_map):
@@ -28,7 +28,12 @@ def plot_3d_height_map(height_map):
     y = np.arange(0, height_map.shape[0])
     X, Y = np.meshgrid(x, y)
 
-    depth_map = - height_map
+    # Create copy of height map and replace zeros with NaN
+    masked_height = height_map.copy().astype(float)
+    masked_height[masked_height == 0] = np.nan
+    
+    # Create the depth map (negative of height map)
+    depth_map = -masked_height
 
     # Plot the surface
     surf = ax.plot_surface(X, Y, depth_map, cmap='jet',
@@ -185,7 +190,7 @@ class RoboticArmController:
         angle_b_final = start_angle_b + compensated_delta_b
         return angle_a_final, angle_b_final
 
-    def move_arm_new(self, start_angle_a, start_angle_b, target_x, target_y, target_z, l_a, l_b):
+    def move_arm_new(self, start_angle_a, start_angle_b, target_x, target_y, target_z, l_a, l_b, num_segments=None):
         self.serial_connection.reset_input_buffer()
         # Using the angle of two arm to calculate initial end-effector position
         x0 = l_a * math.cos(math.radians(start_angle_a)) + \
@@ -196,9 +201,14 @@ class RoboticArmController:
         # Calculate target position using IK, returns the two target angle that we want to reach
         # target_angle_a, target_angle_b = self.calculate_ik(target_x, target_y, l_a, l_b)
 
-        # Generate linear path in Cartesian space, which will have x segment where x is the path distance in mm.
-        # num_segments = max(min(90, int(np.floor(math.hypot(target_x - x0, target_y - y0)))), 5)
-        num_segments = 20
+        if num_segments is None:
+            # Calculate the number of segments based on the distance to the target
+            # num_segments would range from 1-20, equal to the cartesian distance in mm divided by 10
+            # !!! Note that the number 10 is a hyperparameter that can influence the accuracy of the arm movement
+            # If the robotic arm movements are not accurate, consider lowering the number
+            # More segments will be created, movements will be more accurate at the cost of runtime
+            num_segments = max(min(20, (int(np.floor(math.hypot(target_x - x0, target_y - y0))))//10), 1)
+            print('Number of segments: ', num_segments)
 
         # this is our final command that we sent to esp32
         command_sequence = []
@@ -324,36 +334,18 @@ class RoboticArmController:
             # update global arm_z
             arm_z = z
 
-        
-            
             print(local_sequence)
             
             self.serial_connection.reset_input_buffer()  # Clear incoming buffer
             self.serial_connection.reset_output_buffer() # Clear outgoing buffer
-            time.sleep(0.1)  # Short delay to ensure buffers are cleared
 
-
+            # sleep to avoid buffer overflow
+            # !!! Note that the sleep time is a hyperparameter that can influence the accuracy of the arm movement
+            # If the robotic arm movements are not accurate, consider increasing the sleep time
+            time.sleep(0.15)  
             self.serial_connection.write((local_sequence + "\n").encode())
             self.serial_connection.flush()
             
-
-            # wait for esp32 to finish reading and return completed
-            response = ""
-            start_time = time.time()
-            # while True:
-            #     if self.serial_connection.in_waiting > 0:  # Check if data is available
-            #         new_data = self.serial_connection.readline().decode().strip()
-            #         print(f"Received: {new_data}")
-            #         response += new_data
-                    
-            #         if "##ACTION COMPLETED" in new_data:
-            #             break
-                        
-            #     if time.time() - start_time > 5:  # 5-second timeout
-            #         print("WARNING: Timeout waiting for ESP32 response!")
-            #         break
-                    
-            #     time.sleep(0.01)  # Small delay to prevent CPU hammering
         print("DONE sent")
 
         # remember to only use ASCII encoded character < 127, we use @@ here
@@ -432,9 +424,9 @@ class RoboticArmController:
         delta_b = angle_b_new - start_angle_b
 
         global arm_a_err, arm_b_err
-        compensated_delta_a = np.floor((delta_a + arm_a_err) / self.deg_per_step) * self.deg_per_step
+        compensated_delta_a = np.fix((delta_a + arm_a_err) / self.deg_per_step) * self.deg_per_step
         arm_a_err = compensated_delta_a - (delta_a + arm_a_err)
-        compensated_delta_b = np.floor((delta_b + arm_b_err) / self.deg_per_step) * self.deg_per_step
+        compensated_delta_b = np.fix((delta_b + arm_b_err) / self.deg_per_step) * self.deg_per_step
         arm_b_err = compensated_delta_b - (delta_b + arm_b_err)
 
 
@@ -453,7 +445,7 @@ class RoboticArmController:
             return 10000 + int(9000 * (1 - (total_steps - current_step) / accel_steps))
         return 10000
 
-    def raster(self, tl_x, tl_y, area, delay):
+    def raster(self, tl_x, tl_y, area_raw, delay, resolution_factor = 4):
         """
         start_X and start_Y are the coordinate in mm of the top left of the area,
         area is a rectangular grid (2D array) where 1 is area that the arm should move to.
@@ -464,8 +456,37 @@ class RoboticArmController:
         global arm_a_deg, arm_b_deg
         global dist_per_pix
 
+        def adjust_raster_resolution(arr, factor):
+            """
+            Reduces the resolution of a binary (0/1) NumPy array by a given factor.
+            
+            Parameters:
+            - arr: np.ndarray of shape (x, y) with binary values (0,1).
+            - factor: int, the downscaling factor (new shape will be roughly (x//factor, y//factor)).
+            
+            Returns:
+            - np.ndarray of shape (x//factor, y//factor) with reduced resolution.
+            """
+            x, y = arr.shape
+            new_x, new_y = x // factor, y // factor
+
+            # Reshape into blocks of size (factor, factor)
+            reshaped = arr[:new_x * factor, :new_y * factor].reshape(new_x, factor, new_y, factor)
+
+            reduced = np.round(reshaped.mean(axis=(1, 3))).astype(int)  # Majority voting
+        
+            return reduced
+        
+        area = adjust_raster_resolution(area_raw, resolution_factor)
+        print('original_area:', area_raw.shape)
+        print('adjusted_area:', area.shape)
+        #check whether area only has 1 and 0
+        if not np.all(np.isin(area, [0, 1])):
+            raise ValueError("Area array must contain only 0 and 1 values.")
         rows = len(area)
         cols = len(area[0])
+
+        dist_per_pix_new = dist_per_pix * resolution_factor
 
         # Move to the initial position (top-left corner)
         arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, 0, 150, 134)
@@ -483,35 +504,39 @@ class RoboticArmController:
 
             for col in col_range:
                 if area[row][col] == 1:
-                    target_x = tl_x + col * dist_per_pix
-                    target_y = tl_y - row * dist_per_pix
+                    target_x = tl_x + col * dist_per_pix_new
+                    target_y = tl_y - row * dist_per_pix_new
 
                     # Move to the next valid position
                     self.move_arm_new(arm_a_deg, arm_b_deg,target_x, target_y, 0, 150, 134)
                     time.sleep(delay)
                     dist_here = self.ask_dist()
                     height_map[row][col] = dist_here
+        #save the height_map
+        np.save("height_map.npy", height_map)
         plot_3d_height_map(height_map)
         print("saved")
 
-        self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, 0, 150, 134)
-        avg_h = np.average(height_map)
-        for row in range(rows):
-            if row % 2 == 0:
-                # Left-to-right movement
-                col_range = range(cols)
-            else:
-                # Right-to-left movement (zigzag)
-                col_range = range(cols - 1, -1, -1)
+        # self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, 0, 150, 134)
+        # avg_h = np.average(height_map)
+        # for row in range(rows):
+        #     if row % 2 == 0:
+        #         # Left-to-right movement
+        #         col_range = range(cols)
+        #     else:
+        #         # Right-to-left movement (zigzag)
+        #         col_range = range(cols - 1, -1, -1)
 
-            for col in col_range:
-                if area[row][col] == 1:
-                    target_x = tl_x + col * dist_per_pix
-                    target_y = tl_y - row * dist_per_pix
+        #     for col in col_range:
+        #         if area[row][col] == 1:
+        #             target_x = tl_x + col * dist_per_pix
+        #             target_y = tl_y - row * dist_per_pix
 
-                    # Move to the next valid position
-                    self.move_arm_new(arm_a_deg, arm_b_deg, target_x, target_y, height_map[row][col] - avg_h, 150, 150)
-                    time.sleep(delay)
+        #             # Move to the next valid position
+        #             self.move_arm_new(arm_a_deg, arm_b_deg, target_x, target_y, height_map[row][col] - avg_h, 150, 150)
+        #             time.sleep(delay)
+
+        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, -150, 150, 0, 150, 150)  #moving back to the default position to check movement offset
 
     def ask_dist(self):
         global arm_a_deg, arm_b_deg
@@ -542,6 +567,9 @@ class SerialCommApp():
 
         self.var_list = ["arm_a_deg", "arm_b_deg", "dist_per_pix", "arm_a_err", "arm_b_err", "test_times"]
         self.var_display_name_list = ["1st Arm Angle", "2nd Arm Angle", "mm/pix", "1st joint degree error", "2nd joint degree error", "test time"]
+        
+        self.mask_array = None
+        
         global arm_a_deg, arm_b_deg, dist_per_pix, arm_a_err, arm_b_err
         global test_times
 
@@ -629,10 +657,10 @@ class SerialCommApp():
         update_button.grid(sticky="se")
 
         #capture button
+        #store_mask(): Call capture_and_segment(), and store the returned mask array as self.mask_array
         #capture_and_segment(display=True): the segmented mask will be displayed in the guim otherwise will just be saved as shape.png
-        capture_button = ttk.Button(parent, text="Image Capture", command=lambda: self.capture_and_segment(display=False))   
+        capture_button = ttk.Button(parent, text="Image Capture", command=lambda: self.store_mask())   
         capture_button.grid(sticky="se")
-
 
         # Add some padding around all elements
         for child in parent.winfo_children():
@@ -712,10 +740,15 @@ class SerialCommApp():
 
         if display:
             display_mask("segmented_mask.png")
+
+        
+
+
         return updated_mask
     
+    def store_mask(self):
+        self.mask_array = self.capture_and_segment(display=False)
     
-
     def update_variables(self):
         for widget in self.var_widgets:
             entry = widget["entry"]
@@ -799,8 +832,9 @@ class SerialCommApp():
         if self.serial_connection and self.serial_connection.is_open:
             message = self.message_entry.get()
             if message:
-                if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster") or message.startswith("ask_dist"):
-                    parse_and_execute_command(message, arm)
+                if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster") or message.startswith("ask_dist") or message.startswith("calibrate"):
+                    parse_and_execute_command(message, arm, self.mask_array)  # TODO: change to self.mask_array 
+                    #parse_and_execute_command(message, arm, np.load("mask.npy"))
                 else:
                     try:
                         # Send the message
@@ -843,7 +877,7 @@ class SerialCommApp():
         root.destroy()
 
 
-def parse_and_execute_command(command, arm_controller, wait=5000):
+def parse_and_execute_command(command, arm_controller, mask, wait=5000):
     """
     Parses a command string and executes the corresponding function.
     Args:
@@ -900,10 +934,45 @@ def parse_and_execute_command(command, arm_controller, wait=5000):
             # Call the rotate_arm_a function with the extracted degrees
             global arm_a_deg, arm_b_deg
             arm_a_deg, arm_b_deg = arm_controller.move_arm_new(arm_a_deg, arm_b_deg, x_target, y_target, z_target, length_a, length_b)
+        elif command.startswith("calibrate"):
+            #testing the accuracy of the arm, let it move back and forth from 0,300 to -100,100 for <repeat> times
+            parts = command.split()
+            if len(parts) != 2:
+                print("Invalid command format. Expected: calibrate <repeat>")
+                return
+            repeat = int(parts[1])
+            for c in range(repeat):
+                arm_a_deg, arm_b_deg = arm.move_arm_new(arm_a_deg, arm_b_deg, -100, 100, 0, 150, 150)
+                time.sleep(7)
+                arm_a_deg, arm_b_deg = arm.move_arm_new(arm_a_deg, arm_b_deg, 0, 300, 0, 150, 150)
+                time.sleep(7)
+
+
         elif command.startswith("raster"):
-            print("1111")
-            grid = np.ones((9, 9))
-            arm.raster(-170, 170, grid, 0.2)
+            if mask is None:
+                print("Image is not captured and segmented - Test raster function will be executed")
+                print("1111")
+                grid = np.ones((9, 9))
+                arm.raster(-170, 170, grid, 0.2, resolution_factor=1)
+            else:
+                print("Raster function will be executed with the segmented mask")
+                # assume the pen is at position (-150, 150) when the image is captured (arm_a_deg=90, arm_b_deg=90)
+                # move the tof to the position where the camera was
+                cam_pos = 70   # TODO: will change after the camera is mounted
+                arm_a_deg, arm_b_deg = arm.move_arm_new(arm_a_deg, arm_b_deg, -cam_pos, 150, 0, 150, 134)
+                cam_dist = arm.ask_dist()
+                
+                global dist_per_pix
+                # mm/px
+                dist_per_pix = 0.00259*cam_dist + 0.0313
+                print('cam_dist: ', cam_dist)
+                print('dist_per_dix: ',dist_per_pix)
+                len_fov = len(mask)*dist_per_pix
+                wid_fov = len(mask[0])*dist_per_pix
+                start_x = -cam_pos - wid_fov/2
+                start_y = 150 - len_fov/2
+                print('len_fov:', len_fov, 'wid_fov:', wid_fov, 'start_x:', start_x, 'start_y:', start_y)
+                arm.raster(start_x, start_y, mask, 0.2, resolution_factor=8)
         elif command.startswith("ask_dist"):
             arm_controller.ask_dist()
 
@@ -920,8 +989,6 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = SerialCommApp(root)
     arm = RoboticArmController(app.serial_connection)
-
-    #mask = segmentation_main("3cm_1.jpg")
     
     root.protocol("WM_DELETE_WINDOW", app.close_serial)  # Ensure serial is closed on exit
 
