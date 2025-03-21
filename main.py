@@ -61,10 +61,11 @@ This error is considered and updated everytime the arm is moved.
 arm_a_deg = 0.0
 arm_b_deg = 0.0
 arm_z = 0.0
-dist_per_pix = 5
+dist_per_pix = 5.0
 arm_a_err = 0.0
 arm_b_err = 0.0
 test_times = 0
+cam_pos = 70    #camera position
 
 
 class RoboticArmController:
@@ -445,7 +446,7 @@ class RoboticArmController:
             return 10000 + int(9000 * (1 - (total_steps - current_step) / accel_steps))
         return 10000
 
-    def raster(self, tl_x, tl_y, area_raw, delay, resolution_factor = 4):
+    def raster(self, tl_x, tl_y, area_raw, delay, resolution_factor = 1):
         """
         start_X and start_Y are the coordinate in mm of the top left of the area,
         area is a rectangular grid (2D array) where 1 is area that the arm should move to.
@@ -453,17 +454,16 @@ class RoboticArmController:
 
         This function will have the arm trace any irregular shaped area represented as a 2D array.
         """
-        global arm_a_deg, arm_b_deg
+        global arm_a_deg, arm_b_deg, arm_z
         global dist_per_pix
 
-        def adjust_raster_resolution(arr, factor):
+        def adjust_raster_resolution(arr, factor):    #factor=1 means the original array. Greater the factor, lower the resolution
             """
             Reduces the resolution of a binary (0/1) NumPy array by a given factor.
             
             Parameters:
             - arr: np.ndarray of shape (x, y) with binary values (0,1).
             - factor: int, the downscaling factor (new shape will be roughly (x//factor, y//factor)).
-            
             Returns:
             - np.ndarray of shape (x//factor, y//factor) with reduced resolution.
             """
@@ -478,19 +478,24 @@ class RoboticArmController:
             return reduced
         
         area = adjust_raster_resolution(area_raw, resolution_factor)
+        #plot out the numpy array area, save as image
+        plt.imshow(area, cmap='gray')
+        plt.savefig('reduced_resolution_area.png')
+
+        #area = area_raw
         print('original_area:', area_raw.shape)
         print('adjusted_area:', area.shape)
         #check whether area only has 1 and 0
         if not np.all(np.isin(area, [0, 1])):
             raise ValueError("Area array must contain only 0 and 1 values.")
-        rows = len(area)
-        cols = len(area[0])
+        rows = len(area)  #240px
+        cols = len(area[0])   #320px
 
         dist_per_pix_new = dist_per_pix * resolution_factor
 
         # Move to the initial position (top-left corner)
-        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, 0, 150, 134)
-        time.sleep(3)
+        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, arm_z, 150, 150) #TODO: changed to 150 for testing purpose
+        time.sleep(10)
 
         height_map = np.zeros((rows, cols))
 
@@ -504,16 +509,19 @@ class RoboticArmController:
 
             for col in col_range:
                 if area[row][col] == 1:
-                    target_x = tl_x + col * dist_per_pix_new
-                    target_y = tl_y - row * dist_per_pix_new
+                    # target_x = tl_x + col * dist_per_pix_new
+                    # target_y = tl_y - row * dist_per_pix_new
+
+                    #assume arm_a_deg = arm_b_deg = 90
+                    target_y = tl_y + col * dist_per_pix_new
+                    target_x = tl_x + row * dist_per_pix_new
 
                     # Move to the next valid position
-                    self.move_arm_new(arm_a_deg, arm_b_deg,target_x, target_y, 0, 150, 134)
+                    self.move_arm_new(arm_a_deg, arm_b_deg,target_x, target_y, arm_z, 150, 150)  #TODO: changed to 150 for testing purpose
                     time.sleep(delay)
                     dist_here = self.ask_dist()
                     height_map[row][col] = dist_here
-        #save the height_map
-        np.save("height_map.npy", height_map)
+
         plot_3d_height_map(height_map)
         print("saved")
 
@@ -536,7 +544,7 @@ class RoboticArmController:
         #             self.move_arm_new(arm_a_deg, arm_b_deg, target_x, target_y, height_map[row][col] - avg_h, 150, 150)
         #             time.sleep(delay)
 
-        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, -150, 150, 0, 150, 150)  #moving back to the default position to check movement offset
+        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, -150, 150, arm_z, 150, 150)  #moving back to the default position to check movement offset
 
     def ask_dist(self):
         global arm_a_deg, arm_b_deg
@@ -565,12 +573,12 @@ class SerialCommApp():
         self.baudrate = 115200
         self.serial_connection = None
 
-        self.var_list = ["arm_a_deg", "arm_b_deg", "dist_per_pix", "arm_a_err", "arm_b_err", "test_times"]
-        self.var_display_name_list = ["1st Arm Angle", "2nd Arm Angle", "mm/pix", "1st joint degree error", "2nd joint degree error", "test time"]
+        self.var_list = ["arm_a_deg", "arm_b_deg", "arm_z","dist_per_pix", "arm_a_err", "arm_b_err", "test_times"]
+        self.var_display_name_list = ["1st Arm Angle", "2nd Arm Angle", "z" ,"mm/pix", "1st joint degree error", "2nd joint degree error", "test time"]
         
         self.mask_array = None
         
-        global arm_a_deg, arm_b_deg, dist_per_pix, arm_a_err, arm_b_err
+        global arm_a_deg, arm_b_deg, arm_z, dist_per_pix, arm_a_err, arm_b_err
         global test_times
 
         default_font = tkFont.nametofont("TkDefaultFont")
@@ -741,8 +749,20 @@ class SerialCommApp():
         if display:
             display_mask("segmented_mask.png")
 
-        
+        global dist_per_pix
+        global cam_pos
+        global arm_a_deg, arm_b_deg, arm_z
 
+        parse_and_execute_command(f"move_arm {-cam_pos} {150} {arm_z} {150} {134}", arm, updated_mask)
+        cam_dist = arm.ask_dist()
+        print(f"Camera distance: {cam_dist} mm")
+        
+        # mm/px
+        dist_per_pix = 0.00259 * cam_dist + 0.0313
+
+        print(f"Distance per pixel: {dist_per_pix} mm")
+
+        np.save("mask.npy", updated_mask)
 
         return updated_mask
     
@@ -833,8 +853,8 @@ class SerialCommApp():
             message = self.message_entry.get()
             if message:
                 if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster") or message.startswith("ask_dist") or message.startswith("calibrate"):
-                    parse_and_execute_command(message, arm, self.mask_array)  # TODO: change to self.mask_array 
-                    #parse_and_execute_command(message, arm, np.load("mask.npy"))
+                    #parse_and_execute_command(message, arm, self.mask_array)  # TODO: change to self.mask_array 
+                    parse_and_execute_command(message, arm, np.load("mask.npy"))
                 else:
                     try:
                         # Send the message
@@ -958,21 +978,15 @@ def parse_and_execute_command(command, arm_controller, mask, wait=5000):
                 print("Raster function will be executed with the segmented mask")
                 # assume the pen is at position (-150, 150) when the image is captured (arm_a_deg=90, arm_b_deg=90)
                 # move the tof to the position where the camera was
-                cam_pos = 70   # TODO: will change after the camera is mounted
-                arm_a_deg, arm_b_deg = arm.move_arm_new(arm_a_deg, arm_b_deg, -cam_pos, 150, 0, 150, 134)
-                cam_dist = arm.ask_dist()
-                
-                global dist_per_pix
-                # mm/px
-                dist_per_pix = 0.00259*cam_dist + 0.0313
-                print('cam_dist: ', cam_dist)
-                print('dist_per_dix: ',dist_per_pix)
-                len_fov = len(mask)*dist_per_pix
-                wid_fov = len(mask[0])*dist_per_pix
+
+                print('raster-dist_per_pix:', dist_per_pix)
+
+                wid_fov = len(mask)*dist_per_pix  #240px
+                len_fov = len(mask[0])*dist_per_pix   #320px
                 start_x = -cam_pos - wid_fov/2
                 start_y = 150 - len_fov/2
                 print('len_fov:', len_fov, 'wid_fov:', wid_fov, 'start_x:', start_x, 'start_y:', start_y)
-                arm.raster(start_x, start_y, mask, 0.2, resolution_factor=8)
+                arm.raster(start_x, start_y, mask, 0.2, resolution_factor=4)
         elif command.startswith("ask_dist"):
             arm_controller.ask_dist()
 
