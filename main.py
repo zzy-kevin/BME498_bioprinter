@@ -65,7 +65,7 @@ dist_per_pix = 5.0
 arm_a_err = 0.0
 arm_b_err = 0.0
 test_times = 0
-cam_pos = 70    #camera position
+cam_pos = 78    #camera position
 
 
 class RoboticArmController:
@@ -495,7 +495,7 @@ class RoboticArmController:
 
         # Move to the initial position (top-left corner)
         arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, arm_z, 150, 150) #TODO: changed to 150 for testing purpose
-        time.sleep(10)
+        time.sleep(7)
 
         height_map = np.zeros((rows, cols))
 
@@ -559,6 +559,27 @@ class RoboticArmController:
                 except:
                     print("Error: Distance returned cannot be made into a float!")
         return dist
+    
+    def move_z(self, z_target):
+        global arm_z, arm_a_deg, arm_b_deg
+        l_a = 150
+        l_b = 150
+
+        x_start = l_a * math.cos(math.radians(arm_a_deg)) + \
+                  l_b * math.cos(math.radians(arm_a_deg + arm_b_deg))
+        y_start = l_a * math.sin(math.radians(arm_a_deg)) + \
+                  l_b * math.sin(math.radians(arm_a_deg + arm_b_deg))
+
+        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, x_start, y_start, arm_z + z_target, 150, 150)
+    
+    def adjust_z_tof(self, z_offset):
+        global arm_z, arm_a_deg, arm_b_deg
+        
+        dist = self.ask_dist()
+
+        print("Current distance: ", dist)
+        print("Moving down by", dist - z_offset)
+        self.move_z(z_offset-dist)
 
 
 
@@ -753,7 +774,7 @@ class SerialCommApp():
         global cam_pos
         global arm_a_deg, arm_b_deg, arm_z
 
-        parse_and_execute_command(f"move_arm {-cam_pos} {150} {arm_z} {150} {134}", arm, updated_mask)
+        parse_and_execute_command(f"move_arm {-cam_pos} {150} {arm_z} {150} {100}", arm, updated_mask)
         cam_dist = arm.ask_dist()
         print(f"Camera distance: {cam_dist} mm")
         
@@ -852,9 +873,9 @@ class SerialCommApp():
         if self.serial_connection and self.serial_connection.is_open:
             message = self.message_entry.get()
             if message:
-                if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster") or message.startswith("ask_dist") or message.startswith("calibrate"):
-                    #parse_and_execute_command(message, arm, self.mask_array)  # TODO: change to self.mask_array 
-                    parse_and_execute_command(message, arm, np.load("mask.npy"))
+                if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster") or message.startswith("ask_dist") or message.startswith("calibrate") or message.startswith("z_tof") or message.startswith("move_z"):
+                    parse_and_execute_command(message, arm, self.mask_array)  # TODO: change to self.mask_array 
+                    #parse_and_execute_command(message, arm, np.load("mask.npy"))
                 else:
                     try:
                         # Send the message
@@ -967,13 +988,31 @@ def parse_and_execute_command(command, arm_controller, mask, wait=5000):
                 arm_a_deg, arm_b_deg = arm.move_arm_new(arm_a_deg, arm_b_deg, 0, 300, 0, 150, 150)
                 time.sleep(7)
 
+        elif command.startswith("move_z"):
+            parts = command.split()
+            if len(parts) != 2:
+                print("Invalid command format. Expected: move_z <z_target>")
+                return
+            z_target = float(parts[1])
+
+            arm_controller.move_z(z_target)
+
+        elif command.startswith("z_tof"):
+            parts = command.split()
+            if len(parts) != 2:
+                print("Invalid command format. Expected: z_tof <z_offset>")
+                return
+            z_offset = float(parts[1])
+
+            arm_controller.adjust_z_tof(z_offset)
+
 
         elif command.startswith("raster"):
             if mask is None:
                 print("Image is not captured and segmented - Test raster function will be executed")
                 print("1111")
                 grid = np.ones((9, 9))
-                arm.raster(-170, 170, grid, 0.2, resolution_factor=1)
+                arm.raster(-170, 170, grid, 0.1, resolution_factor=1)
             else:
                 print("Raster function will be executed with the segmented mask")
                 # assume the pen is at position (-150, 150) when the image is captured (arm_a_deg=90, arm_b_deg=90)
@@ -983,8 +1022,9 @@ def parse_and_execute_command(command, arm_controller, mask, wait=5000):
 
                 wid_fov = len(mask)*dist_per_pix  #240px
                 len_fov = len(mask[0])*dist_per_pix   #320px
-                start_x = -cam_pos - wid_fov/2
-                start_y = 150 - len_fov/2
+                start_x = -cam_pos - wid_fov/2 + 5*dist_per_pix  #camara is tilted towards +x
+                start_y = 150 - len_fov/2 - 35*dist_per_pix #camara is tilted towards -y due to the arm structure, need to be compensated
+                #start_y = 150 - len_fov/2
                 print('len_fov:', len_fov, 'wid_fov:', wid_fov, 'start_x:', start_x, 'start_y:', start_y)
                 arm.raster(start_x, start_y, mask, 0.2, resolution_factor=4)
         elif command.startswith("ask_dist"):
