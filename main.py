@@ -65,6 +65,8 @@ dist_per_pix = 5.0
 arm_a_err = 0.0
 arm_b_err = 0.0
 test_times = 0
+x_comp = 5
+y_comp = -15
 cam_pos = 78    #camera position
 
 
@@ -341,7 +343,7 @@ class RoboticArmController:
             self.serial_connection.reset_output_buffer() # Clear outgoing buffer
 
             # sleep to avoid buffer overflow
-            # !!! Note that the sleep time is a hyperparameter that can influence the accuracy of the arm movement
+            # !!! Note that the sleep time is a hyperparameter that can influence the of the arm movement
             # If the robotic arm movements are not accurate, consider increasing the sleep time
             time.sleep(0.15)  
             self.serial_connection.write((local_sequence + "\n").encode())
@@ -494,7 +496,7 @@ class RoboticArmController:
         dist_per_pix_new = dist_per_pix * resolution_factor
 
         # Move to the initial position (top-left corner)
-        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, arm_z, 150, 150) #TODO: changed to 150 for testing purpose
+        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, arm_z, 150, 100) #TODO: changed to 150 for testing purpose
         time.sleep(7)
 
         height_map = np.zeros((rows, cols))
@@ -517,32 +519,42 @@ class RoboticArmController:
                     target_x = tl_x + row * dist_per_pix_new
 
                     # Move to the next valid position
-                    self.move_arm_new(arm_a_deg, arm_b_deg,target_x, target_y, arm_z, 150, 150)  #TODO: changed to 150 for testing purpose
+                    arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg,target_x, target_y, arm_z, 150, 100)  #TODO: changed to 150 for testing purpose
                     time.sleep(delay)
                     dist_here = self.ask_dist()
                     height_map[row][col] = dist_here
 
+        scanning_z = arm_z
+
         plot_3d_height_map(height_map)
         print("saved")
 
-        # self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, 0, 150, 134)
-        # avg_h = np.average(height_map)
-        # for row in range(rows):
-        #     if row % 2 == 0:
-        #         # Left-to-right movement
-        #         col_range = range(cols)
-        #     else:
-        #         # Right-to-left movement (zigzag)
-        #         col_range = range(cols - 1, -1, -1)
+        offset = 20
 
-        #     for col in col_range:
-        #         if area[row][col] == 1:
-        #             target_x = tl_x + col * dist_per_pix
-        #             target_y = tl_y - row * dist_per_pix
+        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, arm_z, 150, 150)
+        time.sleep(7)
+        avg_h = np.average(height_map)
+        for row in range(rows):
+            if row % 2 == 0:
+                # Left-to-right movement
+                col_range = range(cols)
+            else:
+                # Right-to-left movement (zigzag)
+                col_range = range(cols - 1, -1, -1)
 
-        #             # Move to the next valid position
-        #             self.move_arm_new(arm_a_deg, arm_b_deg, target_x, target_y, height_map[row][col] - avg_h, 150, 150)
-        #             time.sleep(delay)
+            for col in col_range:
+                if area[row][col] == 1:
+                    # target_x = tl_x + col * dist_per_pix
+                    # target_y = tl_y - row * dist_per_pix
+
+                    #assume arm_a_deg = arm_b_deg = 90
+                    target_y = tl_y + col * dist_per_pix_new
+                    target_x = tl_x + row * dist_per_pix_new
+
+                    # Move to the next valid position
+                    target_z = scanning_z - height_map[row][col]+ offset
+                    arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, target_x, target_y, target_z, 150, 150)
+                    time.sleep(delay + 0.1)
 
         arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, -150, 150, arm_z, 150, 150)  #moving back to the default position to check movement offset
 
@@ -594,12 +606,12 @@ class SerialCommApp():
         self.baudrate = 115200
         self.serial_connection = None
 
-        self.var_list = ["arm_a_deg", "arm_b_deg", "arm_z","dist_per_pix", "arm_a_err", "arm_b_err", "test_times"]
-        self.var_display_name_list = ["1st Arm Angle", "2nd Arm Angle", "z" ,"mm/pix", "1st joint degree error", "2nd joint degree error", "test time"]
+        self.var_list = ["arm_a_deg", "arm_b_deg", "arm_z","dist_per_pix", "arm_a_err", "arm_b_err", "test_times", "x_comp", "y_comp"]
+        self.var_display_name_list = ["1st Arm Angle", "2nd Arm Angle", "z" ,"mm/pix", "1st joint degree error", "2nd joint degree error", "test time", "x_compensation", "y_compensation"]	
         
         self.mask_array = None
         
-        global arm_a_deg, arm_b_deg, arm_z, dist_per_pix, arm_a_err, arm_b_err
+        global arm_a_deg, arm_b_deg, arm_z, dist_per_pix, arm_a_err, arm_b_err, x_comp, y_comp
         global test_times
 
         default_font = tkFont.nametofont("TkDefaultFont")
@@ -874,7 +886,7 @@ class SerialCommApp():
             message = self.message_entry.get()
             if message:
                 if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster") or message.startswith("ask_dist") or message.startswith("calibrate") or message.startswith("z_tof") or message.startswith("move_z"):
-                    parse_and_execute_command(message, arm, self.mask_array)  # TODO: change to self.mask_array 
+                    parse_and_execute_command(message, arm, self.mask_array)
                     #parse_and_execute_command(message, arm, np.load("mask.npy"))
                 else:
                     try:
@@ -984,9 +996,9 @@ def parse_and_execute_command(command, arm_controller, mask, wait=5000):
             repeat = int(parts[1])
             for c in range(repeat):
                 arm_a_deg, arm_b_deg = arm.move_arm_new(arm_a_deg, arm_b_deg, -100, 100, 0, 150, 150)
-                time.sleep(7)
+                time.sleep(10)
                 arm_a_deg, arm_b_deg = arm.move_arm_new(arm_a_deg, arm_b_deg, 0, 300, 0, 150, 150)
-                time.sleep(7)
+                time.sleep(10)
 
         elif command.startswith("move_z"):
             parts = command.split()
@@ -1020,13 +1032,17 @@ def parse_and_execute_command(command, arm_controller, mask, wait=5000):
 
                 print('raster-dist_per_pix:', dist_per_pix)
 
+                global x_comp, y_comp
+
                 wid_fov = len(mask)*dist_per_pix  #240px
                 len_fov = len(mask[0])*dist_per_pix   #320px
-                start_x = -cam_pos - wid_fov/2 + 5*dist_per_pix  #camara is tilted towards +x
-                start_y = 150 - len_fov/2 - 35*dist_per_pix #camara is tilted towards -y due to the arm structure, need to be compensated
+                #y_comp = -35, x_comp = 5
+                print("x_comp:", x_comp, "y_comp:", y_comp)
+                start_x = -cam_pos - wid_fov/2 + x_comp*dist_per_pix  #camara is tilted towards +x
+                start_y = 150 - len_fov/2 + y_comp*dist_per_pix #camara is tilted towards -y due to the arm structure, need to be compensated
                 #start_y = 150 - len_fov/2
                 print('len_fov:', len_fov, 'wid_fov:', wid_fov, 'start_x:', start_x, 'start_y:', start_y)
-                arm.raster(start_x, start_y, mask, 0.2, resolution_factor=4)
+                arm.raster(start_x, start_y, mask, 0.2, resolution_factor=8)
         elif command.startswith("ask_dist"):
             arm_controller.ask_dist()
 
