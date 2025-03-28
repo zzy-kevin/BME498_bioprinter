@@ -82,7 +82,7 @@ class ImageMaskEditor:
         self.undo_button = tk.Button(root, text="Undo", command=self.undo, font=("Arial", 12))
         self.undo_button.pack(pady=10)  # Display the button
 
-        self.clear_button = tk.Button(root, text="Clear", command=self.clear_masks, font=("Arial", 12))  # **(Added)**
+        self.clear_button = tk.Button(root, text="Clear", command=self.clear_masks, font=("Arial", 12))
         self.clear_button.pack(pady=10)
 
         # Submit button

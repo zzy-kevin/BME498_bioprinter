@@ -447,6 +447,35 @@ class RoboticArmController:
         elif current_step > total_steps - accel_steps:
             return 10000 + int(9000 * (1 - (total_steps - current_step) / accel_steps))
         return 10000
+    
+    def cam_calibration(self):
+        global arm_a_deg, arm_b_deg, arm_z
+        global dist_per_pix
+
+        img_filename = image_capture('COM5')
+        
+        x,y=select_point(img_filename)
+
+        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, -78, 150, arm_z, 150, 100)
+        dist_here = self.ask_dist()
+        print("Distance here: ", dist_here)
+        time.sleep(5)
+
+        dist_per_pix = 0.00259 * dist_here + 0.0313
+
+        wid_fov = 240*dist_per_pix  #240px
+        len_fov = 320*dist_per_pix   #320px
+        #y_comp = -35, x_comp = 5
+        print("x_comp:", x_comp, "y_comp:", y_comp)
+        start_x = -cam_pos - wid_fov/2 + x_comp*dist_per_pix  #camara is tilted towards +x
+        start_y = 150 - len_fov/2 + y_comp*dist_per_pix #camara is tilted towards -y due to the arm structure, need to be compensated
+
+        target_x = start_x + y*dist_per_pix
+        target_y = start_y + x*dist_per_pix
+        print("start_x:", start_x, "start_y:", start_y)
+        print("target_x:", target_x, "target_y:", target_y)
+
+        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, target_x, target_y, arm_z, 150, 150)
 
     def raster(self, tl_x, tl_y, area_raw, delay, resolution_factor = 1):
         """
@@ -496,7 +525,7 @@ class RoboticArmController:
         dist_per_pix_new = dist_per_pix * resolution_factor
 
         # Move to the initial position (top-left corner)
-        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, arm_z, 150, 100) #TODO: changed to 150 for testing purpose
+        arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, arm_z, 150, 100)
         time.sleep(7)
 
         height_map = np.zeros((rows, cols))
@@ -519,7 +548,7 @@ class RoboticArmController:
                     target_x = tl_x + row * dist_per_pix_new
 
                     # Move to the next valid position
-                    arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg,target_x, target_y, arm_z, 150, 100)  #TODO: changed to 150 for testing purpose
+                    arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg,target_x, target_y, arm_z, 150, 100)
                     time.sleep(delay)
                     dist_here = self.ask_dist()
                     height_map[row][col] = dist_here
@@ -529,7 +558,7 @@ class RoboticArmController:
         plot_3d_height_map(height_map)
         print("saved")
 
-        offset = 20
+        offset = 25
 
         arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, arm_z, 150, 150)
         time.sleep(7)
@@ -554,7 +583,7 @@ class RoboticArmController:
                     # Move to the next valid position
                     target_z = scanning_z - height_map[row][col]+ offset
                     arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, target_x, target_y, target_z, 150, 150)
-                    time.sleep(delay + 0.1)
+                    time.sleep(delay + 0.3)
 
         arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, -150, 150, arm_z, 150, 150)  #moving back to the default position to check movement offset
 
@@ -702,6 +731,9 @@ class SerialCommApp():
         #capture_and_segment(display=True): the segmented mask will be displayed in the guim otherwise will just be saved as shape.png
         capture_button = ttk.Button(parent, text="Image Capture", command=lambda: self.store_mask())   
         capture_button.grid(sticky="se")
+
+        start_button = ttk.Button(parent, text="Start", command=lambda: self.start_workflow())
+        start_button.grid(sticky="se")
 
         # Add some padding around all elements
         for child in parent.winfo_children():
@@ -885,7 +917,7 @@ class SerialCommApp():
         if self.serial_connection and self.serial_connection.is_open:
             message = self.message_entry.get()
             if message:
-                if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster") or message.startswith("ask_dist") or message.startswith("calibrate") or message.startswith("z_tof") or message.startswith("move_z"):
+                if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster") or message.startswith("ask_dist") or message.startswith("calibrate") or message.startswith("z_tof") or message.startswith("move_z") or message.startswith("cam_calibration"):
                     parse_and_execute_command(message, arm, self.mask_array)
                     #parse_and_execute_command(message, arm, np.load("mask.npy"))
                 else:
@@ -905,6 +937,27 @@ class SerialCommApp():
                 messagebox.showwarning("Warning", "Message cannot be empty!")
         else:
             messagebox.showerror("Error", "No active connection!")
+
+    def start_workflow(self):
+        global arm_a_deg, arm_b_deg
+
+        arm_a_deg = 90
+        arm_b_deg = 90
+        self.store_mask()
+
+        time.sleep(7)
+        parse_and_execute_command(f"move_z -70", arm, updated_mask)
+
+        time.sleep(30)
+        parse_and_execute_command(f"raster", arm, updated_mask)
+
+        time.sleep(3)
+        parse_and_execute_command(f"move_z 50", arm, updated_mask)
+
+
+
+
+        
 
     def read_and_wait(self):
         """
@@ -1018,6 +1071,8 @@ def parse_and_execute_command(command, arm_controller, mask, wait=5000):
 
             arm_controller.adjust_z_tof(z_offset)
 
+        elif command.startswith("cam_calibration"):
+            arm_controller.cam_calibration()
 
         elif command.startswith("raster"):
             if mask is None:
