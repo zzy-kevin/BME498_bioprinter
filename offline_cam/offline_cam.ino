@@ -85,13 +85,13 @@ void setup() {
   // initial sensors are flipped vertically and colors are a bit saturated
   if (s->id.PID == OV3660_PID) {
     s->set_vflip(s, 1);        // flip it back
-    s->set_brightness(s, 2);   // up the brightness just a bit, range (-2,2)
-    s->set_saturation(s, -2);  // lower the saturation, range (-2,2)
+    s->set_brightness(s, 1);   // up the brightness just a bit, range (-2,2)
+    s->set_saturation(s, 1);  // lower the saturation, range (-2,2)
     s->set_contrast(s,2);
     s->set_sharpness(s, 2);
 
     s->set_whitebal(s, 1); // 1-enable auto white balance
-    s->set_wb_mode(s, 0); // 0 - auto white balance, works only whitebal enabled
+    s->set_wb_mode(s, 3); // 0 - auto white balance, works only whitebal enabled
     s->set_awb_gain(s, 1);
 
     s->set_exposure_ctrl(s, 1);  // 1 = Auto Exposure ON, 0 = OFF
@@ -156,4 +156,3 @@ void loop() {
     //delay(10000);
   
 }
-

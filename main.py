@@ -58,8 +58,8 @@ Note that this is always round to deg per step
 We have a global arm_a and arm_b err so we can compensate for movement smaller than our step
 This error is considered and updated everytime the arm is moved.
 """
-arm_a_deg = 0.0
-arm_b_deg = 0.0
+arm_a_deg = 90
+arm_b_deg = 90
 arm_z = 0.0
 dist_per_pix = 5.0
 arm_a_err = 0.0
@@ -452,7 +452,7 @@ class RoboticArmController:
         global arm_a_deg, arm_b_deg, arm_z
         global dist_per_pix
 
-        img_filename = image_capture('COM5')
+        img_filename = image_capture(app.selected_port_cam.get())
         
         x,y=select_point(img_filename)
 
