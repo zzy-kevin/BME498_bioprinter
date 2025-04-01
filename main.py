@@ -68,6 +68,7 @@ test_times = 0
 x_comp = 5
 y_comp = -15
 cam_pos = 78    #camera position
+last_dist = 0
 
 
 class RoboticArmController:
@@ -558,10 +559,10 @@ class RoboticArmController:
         plot_3d_height_map(height_map)
         print("saved")
 
-        offset = 25
+        offset = 30
 
         arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, arm_z, 150, 150)
-        time.sleep(7)
+        time.sleep(4)
         avg_h = np.average(height_map)
         for row in range(rows):
             if row % 2 == 0:
@@ -587,8 +588,21 @@ class RoboticArmController:
 
         arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, -150, 150, arm_z, 150, 150)  #moving back to the default position to check movement offset
 
+    def draw_grid(self):
+        global arm_a_deg, arm_b_deg, arm_z
+        self.move_arm_new(arm_a_deg, arm_b_deg, -150, 240, arm_z, 150, 150)
+        time.sleep(4)
+        for i in range(10):
+            self.move_arm_new(arm_a_deg, arm_b_deg, 0, 240-(i*10), arm_z, 150, 150)
+            time.sleep(3)
+            self.move_arm_new(arm_a_deg, arm_b_deg, -150, 240 - (i * 10), arm_z, 150, 150)
+            time.sleep(3)
+            self.move_arm_new(arm_a_deg, arm_b_deg, -150, 240 - ((i+1) * 10), arm_z, 150, 150)
+            time.sleep(1)
+
     def ask_dist(self):
         global arm_a_deg, arm_b_deg
+        global last_dist
         verify_location = str(round(arm_a_deg, 4)) + str(round(arm_b_deg, 4))
         self.serial_connection.write(("get_dist" + verify_location + '\n').encode())
         return_message = ""
@@ -599,6 +613,9 @@ class RoboticArmController:
                     dist = float(return_message[return_message.rfind(" "):])
                 except:
                     print("Error: Distance returned cannot be made into a float!")
+        if dist >= 200 or dist <= 2:
+            dist = last_dist
+        last_dist = dist
         return dist
     
     def move_z(self, z_target):
@@ -917,9 +934,10 @@ class SerialCommApp():
         if self.serial_connection and self.serial_connection.is_open:
             message = self.message_entry.get()
             if message:
-                if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster") or message.startswith("ask_dist") or message.startswith("calibrate") or message.startswith("z_tof") or message.startswith("move_z") or message.startswith("cam_calibration"):
+                if message.startswith("rotate_arm") or message.startswith("move_arm") or message.startswith("raster") or message.startswith("ask_dist") or message.startswith("calibrate") or message.startswith("z_tof") or message.startswith("move_z") or message.startswith("cam_calibration") or message.startswith("draw_grid"):
                     parse_and_execute_command(message, arm, self.mask_array)
                     #parse_and_execute_command(message, arm, np.load("mask.npy"))
+
                 else:
                     try:
                         # Send the message
@@ -1100,6 +1118,8 @@ def parse_and_execute_command(command, arm_controller, mask, wait=5000):
                 arm.raster(start_x, start_y, mask, 0.2, resolution_factor=8)
         elif command.startswith("ask_dist"):
             arm_controller.ask_dist()
+        elif command.startswith("draw_grid"):
+            arm_controller.draw_grid()
 
     except (ValueError, IndexError) as e:
         raise Exception(f"Error parsing command: {e}")
