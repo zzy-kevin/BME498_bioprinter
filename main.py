@@ -816,14 +816,24 @@ class SerialCommApp():
         print(self.selected_port_cam.get())
         img_filename = image_capture(self.selected_port_cam.get())
 
-        
+        #img_filename = 'test_multimask.jpg'
 
-        mask = segmentation_main(img_filename)
+        masks = segmentation_main(img_filename)
         
 
         print('Segmentation finished, mask is generated')
         global updated_mask
-        updated_mask = edit_mask(img_filename, mask)
+
+        index = 0
+        while True:
+            mask = masks[index]
+            index += 1
+            updated_mask = edit_mask(img_filename, mask)
+
+            if updated_mask != 'Next':
+                break
+            if index >= len(masks):
+                index = 0
 
         plt.imshow(updated_mask,cmap='gray')
         plt.savefig("shape.png", bbox_inches="tight", dpi=300)

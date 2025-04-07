@@ -66,6 +66,8 @@ class ImageMaskEditor:
         # Convert mask to overlay (red transparent mask)
         self.overlay = self.create_mask_overlay()
 
+        self.next = 0
+
         # Create Canvas
         self.canvas = tk.Canvas(root, width=self.image_width, height=self.image_height)
         self.canvas.pack()
@@ -88,6 +90,10 @@ class ImageMaskEditor:
         # Submit button
         self.submit_button = tk.Button(root, text="Submit", command=self.submit, font=("Arial", 12))
         self.submit_button.pack(pady=10)
+
+        #Next button
+        self.next_button = tk.Button(root, text="Next", command=self.next_mask, font=("Arial", 12))
+        self.next_button.pack(pady=10)
 
         self.undo_stack = []
         self.drawing = False
@@ -180,6 +186,14 @@ class ImageMaskEditor:
         # **Remove all the drawn shapes (polygons) from the canvas**
         self.canvas.delete("mask")  # Remove only the drawn shapes (we use "mask" tag)
 
+
+    def next_mask(self):
+        self.next = 1
+        self.root.quit()
+        self.root.update_idletasks()
+        self.root.destroy()
+
+
     def submit(self):
         """Closes the GUI and returns the updated mask."""
         self.root.quit()
@@ -192,7 +206,11 @@ def edit_mask(image_path, mask_array):
     root = tk.Toplevel()
     app = ImageMaskEditor(root, image_path, mask_array)
     root.mainloop()
-    return app.mask  # Return the modified mask
+    if app.next == 1:
+        app.next = 0
+        return 'Next'
+    else:
+        return app.mask  # Return the modified mask
 
 # Main function to call the select point GUI
 def select_point(image_path):

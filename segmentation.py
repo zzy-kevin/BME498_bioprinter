@@ -128,6 +128,6 @@ def segmentation_main(wound_img):
 
     #show_masks(wound_img, masks, scores, point_coords=input_point, input_labels=input_label, borders=True, save=True)
 
-    return masks[0]
+    return masks
     #show_mask(masks, plt.gca(), random_color=False, borders = True)
 
