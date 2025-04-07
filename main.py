@@ -830,7 +830,7 @@ class SerialCommApp():
             index += 1
             updated_mask = edit_mask(img_filename, mask)
 
-            if updated_mask != 'Next':
+            if not np.array_equal(updated_mask, 'Next'):
                 break
             if index >= len(masks):
                 index = 0
