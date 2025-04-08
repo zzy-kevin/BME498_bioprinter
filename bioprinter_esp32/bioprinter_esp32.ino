@@ -49,15 +49,14 @@ void setup() {
 //  // Start continuous readings at a rate of one measurement every 50 ms (the
 //  // inter-measurement period). This period should be at least as long as the
 //  // timing budget.
-  //sensor.startContinuous(50);
+  sensor.startContinuous(50);
 }
 
 float get_dist(){
   float avg_dist;
+  avg_dist = sensor.read();
   for (int x = 0; x < 4; x++){
-    sensor.readSingle(true);
-    //sensor.read();
-    avg_dist = (avg_dist + sensor.ranging_data.range_mm) * 0.5;
+    avg_dist = (avg_dist + sensor.read()) * 0.5;
     
   }
   return avg_dist;  

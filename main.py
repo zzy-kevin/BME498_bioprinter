@@ -848,6 +848,12 @@ class SerialCommApp():
         parse_and_execute_command(f"move_arm {-cam_pos} {150} {arm_z} {150} {100}", arm, updated_mask)
         cam_dist = arm.ask_dist()
         print(f"Camera distance: {cam_dist} mm")
+
+        # cam_dist = 0
+        # while cam_dist ==0:
+        #     cam_dist = arm.ask_dist()
+        #     print(f"Camera distance: {cam_dist} mm")
+        #     #arm.serial_connection.reset_input_buffer()
         
         # mm/px
         dist_per_pix = 0.00259 * cam_dist + 0.0313
@@ -973,8 +979,12 @@ class SerialCommApp():
         arm_b_deg = 90
         self.store_mask()
 
+        dist = arm.ask_dist()
+        adjusted_dist = dist - 23
+        print("adjusted_dist:", adjusted_dist)
+        
         time.sleep(7)
-        parse_and_execute_command(f"move_z -70", arm, updated_mask)
+        parse_and_execute_command(f"move_z -{adjusted_dist}", arm, updated_mask)
 
         time.sleep(30)
         parse_and_execute_command(f"raster", arm, updated_mask)
