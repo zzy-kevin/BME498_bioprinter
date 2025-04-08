@@ -15,7 +15,7 @@ const int HIGHPin = 42;
 
 void setup() {
   // Start serial communication with the computer
-  Serial.begin(115200);  // Set baud rate to 115200 (same as in PC-side code)
+  Serial.begin(512000);  // Set baud rate to 115200 (same as in PC-side code)
   // Declare pins as Outputs
   pinMode(stepPin, OUTPUT);
   pinMode(dirPin, OUTPUT);
@@ -273,7 +273,7 @@ void motionCommand(String message) {
 
   // Process step commands
   int currentPos = fourthSpace;
-  const int pulseWidth = 2000; // microseconds
+  const int pulseWidth = 2500; // microseconds
 
   while (currentPos != -1 && currentPos < message.length()) {
     int nextSpace = message.indexOf(' ', currentPos + 1);
@@ -298,16 +298,24 @@ void motionCommand(String message) {
     if (stepB) digitalWrite(stepPin2, HIGH);
     if (stepZ) digitalWrite(stepPin3, HIGH);
     
-    delayMicroseconds(pulseWidth);
+    if (stepZ) {
+      delayMicroseconds(500);
+      } else {
+        delayMicroseconds(delayTime);
+    }
     
     if (stepA) digitalWrite(stepPin, LOW);
     if (stepB) digitalWrite(stepPin2, LOW);
     if (stepZ) digitalWrite(stepPin3, LOW);
 
     // Handle remaining delay
-    if (delayTime > pulseWidth) {
-      delayMicroseconds(delayTime - pulseWidth);
+
+    if (stepZ) {
+      delayMicroseconds(500);
+    } else {
+      delayMicroseconds(delayTime);
     }
+
 
     currentPos = nextSpace;
   }

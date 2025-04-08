@@ -66,7 +66,7 @@ arm_a_err = 0.0
 arm_b_err = 0.0
 test_times = 0
 x_comp = 5
-y_comp = -15
+y_comp = -10
 cam_pos = 78    #camera position
 last_dist = 0
 
@@ -559,7 +559,7 @@ class RoboticArmController:
         plot_3d_height_map(height_map)
         print("saved")
 
-        offset = 30
+        offset = 15
 
         arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, tl_x, tl_y, arm_z, 150, 150)
         time.sleep(4)
@@ -584,8 +584,8 @@ class RoboticArmController:
                     # Move to the next valid position
                     target_z = scanning_z - height_map[row][col]+ offset
                     arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, target_x, target_y, target_z, 150, 150)
-                    time.sleep(delay + 0.3)
-
+                    time.sleep(delay + 0.4)  # delay between each movearm
+        self.move_z(10)
         arm_a_deg, arm_b_deg = self.move_arm_new(arm_a_deg, arm_b_deg, -150, 150, arm_z, 150, 150)  #moving back to the default position to check movement offset
 
     def draw_grid(self):
@@ -649,7 +649,7 @@ class SerialCommApp():
         # Variables
         self.selected_port = tk.StringVar()
         self.selected_port_cam = tk.StringVar()
-        self.baudrate = 115200
+        self.baudrate = 512000
         self.serial_connection = None
 
         self.var_list = ["arm_a_deg", "arm_b_deg", "arm_z","dist_per_pix", "arm_a_err", "arm_b_err", "test_times", "x_comp", "y_comp"]
@@ -980,7 +980,10 @@ class SerialCommApp():
         self.store_mask()
 
         dist = arm.ask_dist()
-        adjusted_dist = dist - 23
+
+        while dist <= 20 or dist >= 160:  # not possible value, therefore we ask again
+            dist = arm.ask_dist()
+        adjusted_dist = dist - 12
         print("adjusted_dist:", adjusted_dist)
         
         time.sleep(7)
@@ -990,7 +993,7 @@ class SerialCommApp():
         parse_and_execute_command(f"raster", arm, updated_mask)
 
         time.sleep(3)
-        parse_and_execute_command(f"move_z 50", arm, updated_mask)
+        parse_and_execute_command(f"move_z {adjusted_dist-10}", arm, updated_mask)  # keep -10 because after printing it should move up 10
 
 
 
@@ -1131,6 +1134,8 @@ def parse_and_execute_command(command, arm_controller, mask, wait=5000):
                 len_fov = len(mask[0])*dist_per_pix   #320px
                 #y_comp = -35, x_comp = 5
                 print("x_comp:", x_comp, "y_comp:", y_comp)
+                #!! Increase x_comp will move the print towards +x direction (left-hand side)
+                #   Increase y_comp will move the print towards +y direction (away from the printer)
                 start_x = -cam_pos - wid_fov/2 + x_comp*dist_per_pix  #camara is tilted towards +x
                 start_y = 150 - len_fov/2 + y_comp*dist_per_pix #camara is tilted towards -y due to the arm structure, need to be compensated
                 #start_y = 150 - len_fov/2
